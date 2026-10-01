@@ -29,6 +29,9 @@ describe("normalizeProviderHeaders", () => {
     expect(
       normalizeProviderHeaders({ "x-opencode-session": "hijack" }),
     ).toBeUndefined();
+    expect(
+      normalizeProviderHeaders({ "x-opencode-request": "hijack" }),
+    ).toBeUndefined();
     expect(normalizeProviderHeaders({ "X_Nope": "1" })).toBeUndefined();
   });
 

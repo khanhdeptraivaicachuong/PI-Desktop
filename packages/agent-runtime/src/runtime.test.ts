@@ -8921,9 +8921,11 @@ describe("DesktopAgentRuntime compaction request headers", () => {
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sessionId).toBe("session-1");
+    expect(calls[0]?.headers?.["x-opencode-session"]).toMatch(
+      /^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+    );
     expect(calls[0]?.headers).toMatchObject({
-      "x-opencode-session": "session-1",
-      "x-opencode-client": "pi-desktop",
+      "x-opencode-client": "cli",
       "X-Team": "platform",
     });
     await runtime.dispose();

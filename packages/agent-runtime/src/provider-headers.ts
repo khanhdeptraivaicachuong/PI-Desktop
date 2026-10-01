@@ -48,6 +48,7 @@ const FORBIDDEN_HEADER_KEYS = new Set([
   "api-key",
   "chatgpt-account-id",
   "x-opencode-session",
+  "x-opencode-request",
 ]);
 
 const oauthHeaders = new AsyncLocalStorage<Record<string, string>>();

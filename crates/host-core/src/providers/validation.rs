@@ -22,6 +22,7 @@ const FORBIDDEN_HEADER_KEYS: &[&str] = &[
     "api-key",
     "chatgpt-account-id",
     "x-opencode-session",
+    "x-opencode-request",
 ];
 
 pub(crate) fn valid_header_key(key: &str) -> bool {
