@@ -92,8 +92,8 @@ Windows 可执行文件和原生窗口图标中使用 `build/icon.ico`。渲染�
 | 位置 | 要求 |
 |---|---|
 | `apps/desktop/resources/models.dev/api.json` | 打标签前从 https://models.dev/api.json 刷新；发布工作流按该快照原样打包 |
-| `packages/shared/src/changelog.ts` | 英文、zh-CN、zh-TW 条目按最新优先排列，亮点条数一致 |
-| `packages/shared/src/changelog-de.ts`、`changelog-es.ts`、`changelog-fr.ts`、`changelog-ko.ts`、`changelog-tr.ts` | 版本集合与亮点条数与英文一致 |
+| `packages/shared/src/changelog-en.ts` | 英文条目按最新优先排列（事实来源，ADR 0009） |
+| `packages/shared/src/changelog-zh-CN.ts`、`changelog-zh-TW.ts`、`changelog-tr.ts`、`changelog-de.ts`、`changelog-es.ts`、`changelog-fr.ts`、`changelog-ko.ts`、`changelog-pt-BR.ts` | 版本集合与亮点条数与英文一致；新增的已发货语言还需在 `packages/shared/src/changelog.ts` 注册 |
 | `packages/shared/src/changelog.test.ts` | 该版本加入最新优先清单的首位 |
 | `package.json`、`apps/*/package.json`、`packages/*/package.json`、`docs/package.json` | 版本号一致（`docs` 是第三个工作区根，不在 `apps`/`packages` 之下） |
 | `Cargo.toml` 的 `[workspace.package]`、`Cargo.lock` 的 `host-core` | 版本号一致 |
@@ -107,10 +107,10 @@ Windows 可执行文件和原生窗口图标中使用 `build/icon.ico`。渲染�
    （已经是最新）仍然算通过：被打标签的树里的快照才是产物会带上的内容。
    不要把单行压缩 JSON 的 diff 当成“文件不存在”。
 2. 在 `node scripts/release.mjs <version>` / `git tag` **之前**编辑
-   `packages/shared/src/changelog.ts`：
-   - 在 `en` 和每个已发货产品语言下各添加**最新优先**的条目（本文件中的
-     `zh-CN` / `zh-TW`；`packages/shared/src/changelog-*.ts` 中的
-     `de` / `es` / `fr` / `ko` / `tr`）。
+   `packages/shared/src/changelog-en.ts`：
+   - 在 `en` 和每个已发货产品语言下各添加**最新优先**的条目（`zh-CN` / `zh-TW`
+     位于 `changelog-zh-CN.ts` / `changelog-zh-TW.ts`；其余语言目录是同级的
+     `packages/shared/src/changelog-*.ts` 文件）。
    - 稳定版使用相同的 `version` 字符串（semver，**不带**前导 `v`，与
      `apps/desktop` / `APP_VERSION` 一致）。
    - 可选的 ISO `date`（`YYYY-MM-DD`）。
@@ -144,8 +144,8 @@ Windows 可执行文件和原生窗口图标中使用 `build/icon.ico`。渲染�
 打标签前清单：
 
 - [ ] `apps/desktop/resources/models.dev/api.json` 已刷新，或已确认打标签的树中为最新
-- [ ] `packages/shared/src/changelog.ts` 含有正在发布或预览的稳定版本的英文 /
-      zh-CN / zh-TW 条目
+- [ ] `packages/shared/src/changelog-en.ts` 及每个已发货语言目录含有正在发布或
+      预览的稳定版本条目
 - [ ] `packages/shared/src/changelog-de.ts` 及其他语言目录与英文版本集合、
       亮点条数一致
 - [ ] 各语言的亮点条数一致

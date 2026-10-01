@@ -109,8 +109,8 @@ Surfaces in scope:
 | Surface | Requirement |
 |---|---|
 | `apps/desktop/resources/models.dev/api.json` | Refreshed from https://models.dev/api.json before tagging; the release workflow packages this snapshot unchanged |
-| `packages/shared/src/changelog.ts` | Newest-first English, zh-CN, and zh-TW entries, matching highlight counts |
-| `packages/shared/src/changelog-de.ts`, `changelog-es.ts`, `changelog-fr.ts`, `changelog-ko.ts`, `changelog-tr.ts` | Same versions and highlight counts as English |
+| `packages/shared/src/changelog-en.ts` | Newest-first English entries (source of truth, ADR 0009) |
+| `packages/shared/src/changelog-zh-CN.ts`, `changelog-zh-TW.ts`, `changelog-tr.ts`, `changelog-de.ts`, `changelog-es.ts`, `changelog-fr.ts`, `changelog-ko.ts`, `changelog-pt-BR.ts` | Same version set and highlight counts as English; a newly shipped locale is also registered in `packages/shared/src/changelog.ts` |
 | `packages/shared/src/changelog.test.ts` | Version added at the top of the newest-first list |
 | `package.json`, `apps/*/package.json`, `packages/*/package.json`, `docs/package.json` | Same version (`docs` is a third workspace root, not under `apps`/`packages`) |
 | `Cargo.toml` `[workspace.package]`, `Cargo.lock` `host-core` | Same version |
@@ -124,11 +124,11 @@ Blocking steps:
    prereleases. A no-op refresh (already current) still counts: the snapshot
    in the tagged tree is what artifacts ship. Do not treat a minified
    one-line JSON diff as absent.
-2. Edit `packages/shared/src/changelog.ts` **before**
+2. Edit `packages/shared/src/changelog-en.ts` **before**
    `node scripts/release.mjs <version>` / `git tag`:
    - Add a **newest-first** entry under `en` and every shipped product locale
-     (`zh-CN` / `zh-TW` in this file; `de` / `es` / `fr` / `ko` / `tr` in
-     `packages/shared/src/changelog-*.ts`).
+     (`zh-CN` / `zh-TW` in `changelog-zh-CN.ts` / `changelog-zh-TW.ts`; the
+     remaining catalogs are the sibling `packages/shared/src/changelog-*.ts` files).
    - Same `version` string (semver **without** a leading `v`, matching
      `apps/desktop` / `APP_VERSION` for a stable cut).
    - Optional ISO `date` (`YYYY-MM-DD`).
@@ -168,8 +168,8 @@ Pre-tag checklist:
 
 - [ ] `apps/desktop/resources/models.dev/api.json` is refreshed or confirmed
       current in the tagged tree
-- [ ] `packages/shared/src/changelog.ts` has English / zh-CN / zh-TW entries
-      for the stable version being shipped or previewed
+- [ ] `packages/shared/src/changelog-en.ts` and every shipped locale catalog
+      carry entries for the stable version being shipped or previewed
 - [ ] `packages/shared/src/changelog-de.ts` and the other locale catalogs
       match the English version set and highlight counts
 - [ ] Highlight counts match across locales
