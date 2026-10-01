@@ -31,6 +31,8 @@ This log freezes previously open questions into concrete decisions.
 | D634 | Remove bundled macOS first-launch guidance | **Amend D457 / ADR 0296 and the macOS distribution provisions of ADR 0232 / ADR 0204: neither macOS DMG nor ZIP ships `PI-Desktop-macOS-open.command`, `PI-Desktop-macOS-opening-help.txt`, or another bundled quarantine-clearing helper or opening note. The ZIP contains `PI-Desktop.app` at its root; the DMG remains a two-icon install. This applies to signed releases and local or opt-in unsigned debug builds. See ADR 0309 and E2E-196b.** | The signed release lane has eliminated the user need for an unsigned first-launch workaround; shipping it beside debug builds risks suggesting a Gatekeeper bypass. |
 | D635 | Work-area-capped 800×560 window minimum | **Supersede the 1040×700 window minimum in D156 / D447 (and the matching clauses of ADR 0029 / ADR 0238) and the `1040..10000` `window/setWorkPanelChatWidth` range (ADR 0146): Electron enforces an 800×560 minimum, capped per dimension to the current display work area by `clampMinimumSizeToWorkArea`. The chat-width IPC and renderer accept `800..10000`. On narrow windows the existing `workPanelLayout` budget caps the docked panel so MainChat keeps its 450px floor, collapsing the sidebar first. See US-UI-19 and E2E-167.** | At 150% Windows scaling the work area is about 1280×672 DIP, so a fixed minimum could exceed the screen and leave the window unfittable. |
 | D636 | Local permission approvals have no automatic deadline | **Amend D005 / ADR 0011 and supersede the local tool-permission timeout clauses in the runtime and UX specs: a permission-gated `tools.execute` request remains pending in host-core, the renderer, and the transport until the user chooses Allow once, Allow for session, or Deny, or the request is cancelled / the process shuts down. Remove the 120-second countdown and timeout fields from the local permission contract. Tool-specific execution budgets and the separate RACP/Plan approval lifetimes remain unchanged. See ADR 0310, issue #1214, and E2E-017.** | A visible permission request could be missed while the user worked elsewhere; automatic denial after 120 seconds silently prevented the requested action. Keeping cancellation and execution budgets preserves control and resource safety without turning inattention into a decision. |
+| D637 | Remove the Windows frameless resize rim | **Disable the Windows main window's thick frame while retaining Electron 43.6 native frameless edge and corner resizing. Apply a 4 DIP native rounded shape by default; authorized plugin themes may choose an integer radius from 0 to 24 DIP. Keep the D635 minimum-size contract and existing work-panel resize ownership. See ADR 0317 and E2E-167.** | The thick frame paints an unwanted left, bottom, and right rim that themes cannot remove. Native hit testing and shape keep resizing and transparent outer corners without renderer resize IPC. |
+| D638 | Publish native Linux arm64 artifacts | **Amend D126 / D285 / D603 / ADR 0022: tag releases publish native Linux arm64 AppImage, deb, and rpm packages, built on GitHub's native `ubuntu-22.04-arm` runner and carrying an arm64 `pi-desktop-host-core`. The static Linux targets drop their pinned `arch` and take the workflow's `--x64` / `--arm64` flag; `linux.artifactName` becomes `PI-Desktop-<version>-linux-<arch>.AppImage`; each Linux lane verifies its architecture-named updater feed (`latest-linux.yml` on x64, `latest-linux-arm64.yml` on arm64); the ASAR export reads `linux-unpacked` or `linux-arm64-unpacked` and publishes `PI-Desktop-<version>-linux-<arch>.asar`. `pi-host-bundle` builds both Linux architectures and `PUBLISHED_TARGETS` gains `linux-arm64`. Updater ownership, signing, and delivery modes are unchanged. See ADR 0318, issue #1281, and E2E-192a.** | arm64 Linux devices could not install or run the published x64 artifact, and a cross-built or emulated lane would ship a mismatched Rust sidecar. |
 | D450 | Signed macOS GitHub Releases | **Amend D078 / ADR 0022: GitHub tag releases Developer ID-sign, notarize (`notarytool` via electron-builder 26), staple, and Gatekeeper-verify macOS DMG/ZIP before upload, using identity `Developer ID Application: XingYu Liu (DUV63RKYTW)` / team `DUV63RKYTW` from Actions secrets (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`). Missing secrets fail the job. Local unsigned packaging without a certificate remains. `workflow_dispatch` may set `sign_macos: false` only for unsigned debug artifacts. Packaged macOS uses in-app `electron-updater` (ZIP + merged `latest-mac.yml`); Linux deb/rpm and Windows portable ZIP stay notify-and-link. No afterPack/afterSign adhoc codesign (ADR 0278).** | Production DMGs must open without a Gatekeeper warning, and signed macOS installs can download and restart into a new tag. See ADR 0289, E2E-196c, E2E-067A. |
 
 ## B. Secondary implementation defaults
@@ -6209,9 +6211,9 @@ that was sitting at the bottom — including after the turn had finished.
   typed error instead of hanging behind an invisible prompt.
 - The desktop resolves the bundle for the remote platform at its own version,
   holds the SHA-256 the release publishes, and refuses an unpublished target
-  (`linux-x64` only today) before any download. The uploaded script downloads,
-  verifies, and installs the bundle under the remote `$HOME`; no executable
-  bytes cross the SSH channel.
+  (`linux-x64` and `linux-arm64`) before any download. The uploaded script
+  downloads, verifies, and installs the bundle under the remote `$HOME`; no
+  executable bytes cross the SSH channel.
 - The script runs under `umask 077` and echoes `PI_HOST_READY` /
   `PI_HOST_PAIRING_TOKEN`, so the single-use pairing token exists only in a work
   file and on the SSH channel, never in a world-readable path or a URL
@@ -7334,3 +7336,51 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   Tool-specific command/plugin execution budgets and the independent Plan/Goal
   and RACP approval lifetimes are unchanged. See ADR 0310, issue #1214, and
   E2E-017.
+
+## 2026-09-29 — Remove the Windows frameless resize rim (D637)
+
+- The Windows main window disables Electron's thick frame, removing the native
+  left, bottom, and right rim. Electron 43.6 retains its frameless native edge
+  and corner hit test, so no renderer resize path or geometry IPC is added.
+  macOS/Linux window behavior and work-panel resize ownership remain unchanged.
+  The Windows main window defaults to a native 4 DIP shape whose corner pixels
+  and hit targets are absent; an authorized plugin theme may choose an integer
+  radius from 0 to 24 DIP, reverting to 4 when the theme is withdrawn. The
+  D635 work-area-capped minimum remains in force. The removed thick frame
+  leaves no native shadow control for themes; external shadow needs a separate
+  window-geometry decision. See ADR 0317 and E2E-167.
+
+## 2026-10-01 — Publish native Linux arm64 artifacts (D638)
+
+- Tag releases publish Linux arm64 AppImage, deb, and rpm packages beside the
+  x64 ones. Each lane runs on a native GitHub-hosted Ubuntu 22.04 runner
+  (`ubuntu-22.04` and `ubuntu-22.04-arm`) and packs the `pi-desktop-host-core`
+  binary it just built, so the sidecar architecture always matches the Electron
+  app. Both lanes keep the glibc 2.35 floor.
+- The Linux targets no longer pin `arch`: electron-builder prefers a
+  configuration arch list over the CLI flag, so pinning both architectures
+  would make each lane build the other one around its own sidecar. The
+  workflow passes the matching `--x64` / `--arm64` flag and verifies
+  `uname -m` before packaging.
+- The AppImage name carries its architecture
+  (`PI-Desktop-<version>-linux-x64.AppImage`,
+  `PI-Desktop-<version>-linux-arm64.AppImage`). The x64 asset is therefore
+  renamed from its previous version-only name; in-app updates are unaffected
+  because the updater reads the published feed.
+- electron-builder names each Linux feed after the architecture it built
+  (`latest-linux.yml` on x64, `latest-linux-arm64.yml` on arm64), which is what
+  `electron-updater` requests on those architectures, so the lanes cannot
+  overwrite each other's feed and each lane verifies that name before upload
+  instead of renaming it. The publish job merges both artifacts without losing
+  a feed.
+- `scripts/export-linux-asar.mjs` takes the lane architecture and exports
+  `PI-Desktop-<version>-linux-<arch>.asar` from `linux-unpacked` (x64) or
+  `linux-arm64-unpacked` (arm64).
+- `release.yml`'s `pi-host-bundle` job builds both Linux architectures and
+  `PUBLISHED_TARGETS` publishes `linux-x64` and `linux-arm64`, so an arm64
+  desktop can bootstrap an arm64 remote host (D375 / ADR 0292).
+- Known limitation: microphone capture stays unavailable on arm64 Linux
+  devices other than Raspberry Pi boards, because `@picovoice/pvrecorder-node`
+  knows only Raspberry Pi CPU parts for Linux arm64. Speech-to-text and the
+  rest of the app have no architecture-specific dependency. See ADR 0318,
+  issue #1281, and E2E-192a.

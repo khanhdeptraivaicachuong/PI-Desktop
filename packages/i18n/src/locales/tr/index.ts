@@ -2122,7 +2122,7 @@ importConfirm: "İçe aktarılan uzantılar ajan sürecinde, ajanın kendi araç
       "net.fetch": "Ağı kullan",
       "shell.openExternal": "Dış bağlantılar aç",
       "ui.theme": "Tema sağla",
-      "ui.window.appearance": "Pencere arka planını ayarla",
+      "ui.window.appearance": "Pencere görünümünü özelleştir",
       "mcp.server.local": "Yerel bir MCP sunucusu çalıştır",
       "mcp.server.remote": "Uzak bir MCP sunucusuna ulaş",
       "background.service": "Arka plan servisini çalışır tut",
@@ -2171,7 +2171,7 @@ importConfirm: "İçe aktarılan uzantılar ajan sürecinde, ajanın kendi araç
       "net.fetch": "Dışarıya ağ istekleri yapabilir.",
       "shell.openExternal": "Varsayılan tarayıcınızda bağlantı açabilir.",
       "ui.theme": "Ayarlar’dan seçebileceğiniz bir tema ekler; yalnızca stil, veri yok.",
-      "ui.window.appearance": "Yerel pencere arka planını bu eklentinin temasına uydurur. Yalnızca stil, veri yok.",
+      "ui.window.appearance": "Yerel pencere arka planını ve Windows köşelerini bu eklentinin temasına uyarlar. Yalnızca stil, veri yok.",
       "mcp.server.local": "Ek ajan araçları sunmak için bu bilgisayarda bir program başlatır.",
       "mcp.server.remote":
         "Eklentinin bildirdiği uzak bir MCP uç noktasına araç çağrıları gönderir. Uç nokta şifresiz HTTP kullanabilir.",

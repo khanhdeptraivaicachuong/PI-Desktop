@@ -2107,7 +2107,7 @@ export const ptBR = {
       "net.fetch": "Pode fazer solicitações de rede externas.",
       "shell.openExternal": "Pode abrir links no seu navegador padrão.",
       "ui.theme": "Adiciona um tema que você pode escolher em Configurações; apenas estilo, sem acesso a dados.",
-      "ui.window.appearance": "Ajusta o fundo da janela nativa para coincidir com o tema deste plugin. Apenas estilo, sem dados.",
+      "ui.window.appearance": "Ajusta o fundo da janela nativa e os cantos no Windows ao tema deste plugin. Apenas estilo, sem dados.",
       "mcp.server.local": "Inicia um programa neste computador para fornecer ferramentas adicionais ao agente.",
       "mcp.server.remote": "Envia chamadas de ferramentas a um endpoint MCP remoto declarado pelo plugin. O endpoint pode usar HTTP sem criptografia.",
       "background.service": "Mantém um processo auxiliar em execução enquanto o plugin está ativado.",

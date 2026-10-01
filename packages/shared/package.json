@@ -17,6 +17,10 @@
     "./theme": {
       "types": "./dist/theme.d.ts",
       "import": "./dist/theme.js"
+    },
+    "./changelog-loader": {
+      "types": "./dist/changelog-loader.d.ts",
+      "import": "./dist/changelog-loader.js"
     }
   },
   "scripts": {

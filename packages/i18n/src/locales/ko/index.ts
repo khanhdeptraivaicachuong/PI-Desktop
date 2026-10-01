@@ -2132,7 +2132,7 @@ importConfirm: "가져온 확장은 에이전트 프로세스 안에서 에이�
       "net.fetch": "네트워크 사용",
       "shell.openExternal": "외부 링크 열기",
       "ui.theme": "테마 제공",
-      "ui.window.appearance": "창 배경 설정",
+      "ui.window.appearance": "창 모양 사용자 지정",
       "mcp.server.local": "로컬 MCP 서버 실행",
       "mcp.server.remote": "원격 MCP 서버에 연결",
       "background.service": "백그라운드 서비스 계속 실행",
@@ -2181,7 +2181,7 @@ importConfirm: "가져온 확장은 에이전트 프로세스 안에서 에이�
       "net.fetch": "외부 네트워크 요청을 보낼 수 있습니다.",
       "shell.openExternal": "기본 브라우저에서 링크를 열 수 있습니다.",
       "ui.theme": "설정에서 선택할 수 있는 테마를 추가합니다. 스타일만 변경하며 데이터에는 접근하지 않습니다.",
-      "ui.window.appearance": "네이티브 창 배경을 이 플러그인의 테마에 맞춥니다. 스타일만 변경하며 데이터에는 접근하지 않습니다.",
+      "ui.window.appearance": "네이티브 창 배경과 Windows 창 모서리를 이 플러그인의 테마에 맞춥니다. 스타일만 변경하며 데이터에는 접근하지 않습니다.",
       "mcp.server.local": "이 컴퓨터에서 프로그램을 시작해 추가 에이전트 도구를 제공합니다.",
       "mcp.server.remote":
         "플러그인이 선언한 원격 MCP 엔드포인트로 도구 호출을 보냅니다. 엔드포인트가 암호화되지 않은 HTTP를 사용할 수 있습니다.",
