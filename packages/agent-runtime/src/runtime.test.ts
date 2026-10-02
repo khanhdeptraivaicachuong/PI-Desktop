@@ -15,6 +15,7 @@ import {
   DesktopAgentRuntime,
   PATH_INSTRUCTION_RESOLUTION_TIMEOUT_MS,
   looksLikePseudoToolCall,
+  toolResultFromUi,
   type CompactionStrategy,
   type PluginToolDef,
   type RuntimeMatchConfig,
@@ -10399,5 +10400,52 @@ describe("DesktopAgentRuntime summary conversation key", () => {
       stderr.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("toolResultFromUi image restoration (issue #1073)", () => {
+  const timestamp = 1;
+
+  it("restores a host Read image result as real image content blocks", () => {
+    const row = {
+      id: "call-1",
+      role: "tool" as const,
+      content: "",
+      createdAt: new Date(timestamp).toISOString(),
+      toolCallId: "call-1",
+      toolName: "Read",
+      // Host tool_read returns a top-level images array, not content blocks.
+      toolResult: {
+        path: "shot.png",
+        text: "Image file shot.png (17 bytes, image/png); the image is attached to this result.",
+        images: [{ data: "cG5nLWJ5dGVz", mimeType: "image/png" }],
+      },
+      toolStatus: "success" as const,
+      isError: false,
+    };
+    const restored = toolResultFromUi(row, timestamp);
+    expect(restored.content).toEqual([
+      { type: "text", text: expect.stringContaining("shot.png") },
+      { type: "image", data: "cG5nLWJ5dGVz", mimeType: "image/png" },
+    ]);
+  });
+
+  it("drops malformed image entries instead of failing the restore", () => {
+    const row = {
+      id: "call-2",
+      role: "tool" as const,
+      content: "",
+      createdAt: new Date(timestamp).toISOString(),
+      toolCallId: "call-2",
+      toolName: "Read",
+      toolResult: {
+        path: "broken.png",
+        images: [{ data: 42 }, "not-an-object", { data: "ok", mimeType: 7 }],
+      },
+      toolStatus: "success" as const,
+      isError: false,
+    };
+    const restored = toolResultFromUi(row, timestamp);
+    expect(restored.content).toEqual([{ type: "text", text: expect.stringContaining("broken.png") }]);
   });
 });
