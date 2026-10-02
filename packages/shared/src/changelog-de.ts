@@ -5,6 +5,7 @@ export const deEntries: ChangelogEntry[] = [
     "version": "0.16.0",
     "date": "2026-10-02",
     "highlights": [
+      "Wählen Sie in den Einstellungen einen eigenen Datenspeicherort, verfolgen Sie die Migration und leeren Sie neu erzeugbare Caches sicher.",
       "Live Voice steht jetzt allen zur Verfügung, und Anrufe starten im aktuellen Verlauf.",
       "Neue Checkliste pro Verlauf, die ihren verbindlichen Stand auch nach einem Neustart des lokalen Dienstes behält.",
       "Einmalige Hinweise erscheinen jetzt im gemeinsamen Toast-Stapel statt in blockierenden Dialogen.",

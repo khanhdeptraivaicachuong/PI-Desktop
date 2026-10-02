@@ -5,6 +5,7 @@ export const ptBREntries: ChangelogEntry[] = [
     "version": "0.16.0",
     "date": "2026-10-02",
     "highlights": [
+      "Escolha um local personalizado para os dados, acompanhe a migração e limpe com segurança os caches regeneráveis nas Configurações.",
       "O Live Voice agora está disponível para todos e as chamadas começam na sessão atual.",
       "Nova lista de tarefas por sessão, que mantém o estado oficial mesmo após reiniciar o serviço local.",
       "Avisos pontuais agora aparecem na pilha de toasts compartilhada em vez de diálogos bloqueantes.",

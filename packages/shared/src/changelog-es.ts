@@ -5,6 +5,7 @@ export const esEntries: ChangelogEntry[] = [
     "version": "0.16.0",
     "date": "2026-10-02",
     "highlights": [
+      "Elige una ubicación personalizada de datos, sigue el progreso de migración y limpia de forma segura la caché regenerable desde Ajustes.",
       "Live Voice ya está disponible para todos y las llamadas comienzan en la conversación actual.",
       "Nueva lista de tareas por conversación que conserva su estado autorizado aunque se reinicie el servicio local.",
       "Los avisos puntuales ahora aparecen en la pila de toasts compartida en lugar de diálogos bloqueantes.",

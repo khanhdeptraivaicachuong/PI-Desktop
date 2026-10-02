@@ -5,6 +5,7 @@ export const enEntries: ChangelogEntry[] = [
     version: "0.16.0",
     date: "2026-10-02",
     highlights: [
+      "Choose a custom data location, follow migration progress, and safely reclaim regenerable caches in Settings.",
       "Live Voice is now available to everyone and calls start in the current session.",
       "Add a session checklist that keeps its authoritative state after the local service restarts.",
       "Show one-off notices in the shared toast stack instead of blocking dialogs.",

@@ -122,6 +122,7 @@ import type {
   TrustedExtensionUiPrompt,
   TrustedExtensionUiPromptResponse,
   SessionTodoSnapshot,
+  StorageInfo,
 } from "@pi-desktop/shared";
 import {
   defaultCommandShellForPlatform,
@@ -637,6 +638,14 @@ export const api = {
   runImportModelConfigs: (items: ModelConfigImportCandidate[]) =>
     invoke<ImportRunResult>(IPC.invoke.modelConfigImportRun, items),
   getSettings: () => invoke<AppSettings>(IPC.invoke.settingsGet).then(normalizeSettings),
+  getStorageInfo: () => invoke<StorageInfo>(IPC.invoke.storageGet),
+  chooseStorageDirectory: () => invoke<string | null>(IPC.invoke.storageChoose),
+  migrateStorage: (input: { path: string; language: string }) =>
+    invoke<void>(IPC.invoke.storageMigrate, input),
+  clearStorageCache: (input: { language: string }) =>
+    invoke<void>(IPC.invoke.storageClearCache, input),
+  removeStorageBackup: (input: { language: string }) =>
+    invoke<void>(IPC.invoke.storageRemoveBackup, input),
   setSettings: (settings: AppSettings) =>
     invoke(IPC.invoke.settingsSet, validateSettingsWrite(settings)),
   configSyncGetState: () => invoke<ConfigSyncState>(IPC.invoke.configSyncGetState),

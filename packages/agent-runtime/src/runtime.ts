@@ -5266,7 +5266,14 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   }
 
   private resetDeferredToolsForPrompt(): void {
-    this.activeDeferredToolNames.clear();
+    // Sticky activation (#1225): on-demand tools stay active for the whole
+    // session instead of being reset at every prompt. A context-only restore
+    // drops the activation whenever the announcing rows fall out of the window
+    // (compaction, long turns), and the next direct call then fails with
+    // "Tool <name> not found" at name resolution — the intermittent 0 ms
+    // rejection on Windows. `rebuildToolCatalog` still prunes names that left
+    // the catalog (mode switches, extension reloads), so the set cannot
+    // outlive the tools it names.
     this.restoreDeferredToolsFromContext();
     this.setAgentTools(this.activeTools());
   }

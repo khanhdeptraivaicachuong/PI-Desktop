@@ -73,7 +73,7 @@ export default defineConfig({
           "transcribe-cpp",
         ],
         input: {
-          index: resolve(__dirname, "electron/main/index.ts"),
+          index: resolve(__dirname, "electron/main/entry.ts"),
           // Forked per plugin by PluginRuntime (ADR 0008); must stay a
           // standalone entry so utilityProcess can point at a real file.
           "plugin-host-process": resolve(__dirname, "electron/main/plugin-host-process.mjs"),

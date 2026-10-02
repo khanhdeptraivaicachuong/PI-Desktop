@@ -5,6 +5,7 @@ export const frEntries: ChangelogEntry[] = [
     "version": "0.16.0",
     "date": "2026-10-02",
     "highlights": [
+      "Choisissez un emplacement personnalisé, suivez la migration et nettoyez les caches régénérables en toute sécurité depuis les paramètres.",
       "Live Voice est désormais accessible à tous et les appels démarrent dans la conversation en cours.",
       "Nouvelle liste de tâches par conversation, qui conserve son état de référence même après un redémarrage du service local.",
       "Les notifications ponctuelles s’affichent maintenant dans la pile de toasts commune plutôt que dans des boîtes de dialogue bloquantes.",

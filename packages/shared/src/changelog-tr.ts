@@ -5,6 +5,7 @@ export const trEntries: ChangelogEntry[] = [
     "version": "0.16.0",
     "date": "2026-10-02",
     "highlights": [
+      "Ayarlar üzerinden özel veri konumu seçin, taşıma ilerlemesini izleyin ve yeniden oluşturulabilir önbellekleri güvenle temizleyin.",
       "Canlı Ses artık herkesin kullanımına açık ve görüşmeler geçerli oturumda başlıyor.",
       "Yerel hizmet yeniden başlatılsa bile bağlayıcı durumunu koruyan oturum bazlı kontrol listesi eklendi.",
       "Tek seferlik bildirimler artık engelleyici iletişim kutuları yerine ortak toast yığınında gösteriliyor.",
