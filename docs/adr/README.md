@@ -20,7 +20,9 @@ Each ADR includes:
 
 | ID | Title | Status |
 |---|---|---|
-| pi-ai-core-0991-authority | [Pi 0.99.1 account model authority](pi-ai-core-0991-authority.md) | Accepted for current migration candidate |
+| mcp-tool-approval-risk | [User MCP tools keep the normal approval path](mcp-tool-approval-risk.md) | Accepted |
+| models-dev-catalog-authority | [models.dev owns published model metadata](models-dev-catalog-authority.md) | Accepted for implementation |
+| pi-ai-core-0991-authority | [Pi 0.99.1 account model authority](pi-ai-core-0991-authority.md) | Superseded for chat model metadata |
 | plan-tool-declarations-and-execution-denials | [Keep known tool declarations while denying contract-mode execution](plan-tool-declarations-and-execution-denials.md) | Accepted for implementation |
 | trusted-extension-operation-ownership | [Trusted extension operation ownership](trusted-extension-operation-ownership.md) | Implemented candidate |
 | scheduled-desktop-automations | [Desktop automation scheduling](scheduled-desktop-automations.md) | Accepted for implementation |
@@ -52,7 +54,7 @@ Each ADR includes:
 | 0024 | Composer Slash Commands and @ File References | Accepted |
 | 0025 | Keep Application Menus out of Windows/Linux Windows | Accepted |
 | 0026 | Move the Projects Index into Settings as an Archive | Superseded in part by 0036 |
-| 0027 | Make pi-ai authoritative for model metadata | Accepted |
+| 0027 | Make pi-ai authoritative for model metadata | Superseded for chat metadata |
 | 0028 | Scope work-panel runtime contexts to conversations | Accepted |
 | 0029 | Separate native-window and work-panel resize ownership | Superseded in part by 0032 |
 | 0030 | Turn-boundary context checkpoint compaction | Accepted |
@@ -159,8 +161,8 @@ Each ADR includes:
 | 0130 | Bounded Mounted Transcript Window | Accepted |
 | 0131 | Spill Large Composer Text Pastes into Session Scratch | Accepted |
 | 0132 | Attribute cross-display window moves to the user | Accepted |
-| 0133 | Use models.dev as the primary model catalog with pi-ai fallback | Superseded by 0134 |
-| 0134 | Use models.dev as the sole model metadata source with a local snapshot | Accepted |
+| 0133 | Use models.dev as the primary model catalog with pi-ai fallback | Superseded for chat metadata by `models-dev-catalog-authority` |
+| 0134 | Use models.dev as the sole model metadata source with a local snapshot | Superseded for chat metadata by `models-dev-catalog-authority` |
 | 0135 | Retry unchanged edited prompts | Accepted |
 | 0136 | Preserve the active task boundary across context compaction | Accepted |
 | 0137 | Retained Session Panes | Accepted (amends 0130 clauses 4/5) |

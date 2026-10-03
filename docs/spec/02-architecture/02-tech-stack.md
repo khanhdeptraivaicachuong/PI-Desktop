@@ -18,8 +18,11 @@
 
 > pi-ai owns published metadata, native thinking support, transports and auth.
 > Host persists Desktop account rows, credentials, and explicit binding overrides.
-> pi-coding-agent remains an existing compatibility dependency for compaction and
-> file utilities; this migration does not adopt AgentSession, Codemode or routing.
+> Agent Runtime owns desktop context projection and checkpoint compaction. The
+> transitional pi-coding-agent dependency is confined to native Pi session
+> continuation and the trusted-extension compatibility shim; it is not the
+> desktop agent loop, compaction, or durable session store. See
+> [the pi runtime dependency boundary](06-pi-runtime-dependency-boundary.md).
 
 | Node runtime | Node.js | `>= 22.19` | pi requirement |
 | DB | SQLite | Rust host-core via `rusqlite` | sessions/settings |

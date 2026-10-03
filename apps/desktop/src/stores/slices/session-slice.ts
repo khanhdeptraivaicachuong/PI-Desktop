@@ -34,8 +34,6 @@ import {
   sessionIsPinned,
   type SessionMeta,
 } from "../../lib/sidebar-preferences";
-import { enqueueAsk } from "../../lib/pending-asks";
-import { enqueuePermission } from "../../lib/pending-permissions";
 import { api } from "../../lib/api";
 import { createRefreshCoordinator } from "../../lib/refresh-coordinator";
 import {
@@ -94,6 +92,55 @@ export type SessionSliceDependencies = StoreAccess & {
   }) => Promise<string | null>;
 };
 
+function reconcilePendingQueue<T extends { requestId: string }>(
+  current: T[],
+  initialRequestIds: ReadonlySet<string>,
+  restored: T[],
+): T[] {
+  const restoredById = new Map(
+    restored.map((entry) => [entry.requestId, entry] as const),
+  );
+  const currentRequestIds = new Set<string>();
+  const next = current.flatMap((entry) => {
+    currentRequestIds.add(entry.requestId);
+    if (
+      initialRequestIds.has(entry.requestId) &&
+      !restoredById.has(entry.requestId)
+    ) {
+      return [];
+    }
+    return [restoredById.get(entry.requestId) ?? entry];
+  });
+  const appendedRequestIds = new Set<string>();
+  for (const entry of restored) {
+    if (
+      currentRequestIds.has(entry.requestId) ||
+      initialRequestIds.has(entry.requestId) ||
+      appendedRequestIds.has(entry.requestId)
+    ) {
+      continue;
+    }
+    next.push(entry);
+    appendedRequestIds.add(entry.requestId);
+  }
+  return next;
+}
+
+function replacePendingQueue<T>(
+  queues: Record<string, T[]>,
+  sessionId: string,
+  queue: T[],
+): Record<string, T[]> {
+  if (queue.length === 0) {
+    if (!queues[sessionId]) return queues;
+    const next = { ...queues };
+    delete next[sessionId];
+    return next;
+  }
+  if (queues[sessionId] === queue) return queues;
+  return { ...queues, [sessionId]: queue };
+}
+
 export function createSessionSlice({
   get,
   set,
@@ -119,6 +166,8 @@ export function createSessionSlice({
   | "configureActiveSession"
   | "abortSession"
 > {
+  const pendingInteractiveRestoreGenerations = new Map<string, number>();
+
   const refreshSessionList = createRefreshCoordinator(async () => {
     const result = await api.listSessions();
     set({ sessions: decorateSessions(result.sessions, get().sessionMeta) });
@@ -214,15 +263,14 @@ export function createSessionSlice({
     },
 
     /**
-     * Rebuild a session's decision cards from the Host-owned read.
+     * Reconcile a session's decision cards with the Host-owned read.
      *
      * `pendingAsks` / `pendingPermissions` live in renderer memory only, so a
-     * renderer reload forgets both. Main still holds the open questions and
-     * gated tool requests, and this merges that read back in. It is a merge,
-     * never a replace: an entry the live event stream already delivered (or
-     * delivered while this read was in flight) stays exactly once, and nothing
-     * is ever cleared from here — an empty or failed read must not wipe cards
-     * the user can still answer.
+     * renderer reload forgets both. A successful read is authoritative for
+     * requests that existed when the read started: answered or completed cards
+     * are removed, while requests delivered during the read are preserved.
+     * Failed reads remain non-destructive, and an older overlapping read cannot
+     * overwrite a newer result.
      *
      * Only this desktop's own sessions have that read. `native-pi:` sessions
      * are read-mostly imports and remote sessions are driven over RACP-WS, so
@@ -235,6 +283,20 @@ export function createSessionSlice({
       );
       if (!session) return;
       if (session.source === "pi-native" || session.source === "remote") return;
+
+      const generation =
+        (pendingInteractiveRestoreGenerations.get(sessionId) ?? 0) + 1;
+      pendingInteractiveRestoreGenerations.set(sessionId, generation);
+      const beforeRead = get();
+      const initialAskIds = new Set(
+        (beforeRead.pendingAsks[sessionId] ?? []).map((ask) => ask.requestId),
+      );
+      const initialPermissionIds = new Set(
+        (beforeRead.pendingPermissions[sessionId] ?? []).map(
+          (permission) => permission.requestId,
+        ),
+      );
+
       let pending: PendingInteractiveRequests;
       try {
         pending = await api.pendingInteractive(sessionId);
@@ -243,21 +305,46 @@ export function createSessionSlice({
         // exactly as the live stream left them.
         return;
       }
-      if (pending.asks.length === 0 && pending.permissions.length === 0) return;
+      if (
+        pendingInteractiveRestoreGenerations.get(sessionId) !== generation
+      ) {
+        return;
+      }
+
       set((state) => {
-        let pendingAsks = state.pendingAsks;
-        for (const ask of pending.asks) pendingAsks = enqueueAsk(pendingAsks, ask);
-        let pendingPermissions = state.pendingPermissions;
-        for (const permission of pending.permissions) {
-          pendingPermissions = enqueuePermission(pendingPermissions, permission);
+        if (!state.sessions.some((candidate) => candidate.id === sessionId)) {
+          return {};
         }
+        const pendingAsks = reconcilePendingQueue(
+          state.pendingAsks[sessionId] ?? [],
+          initialAskIds,
+          pending.asks,
+        );
+        const pendingPermissions = reconcilePendingQueue(
+          state.pendingPermissions[sessionId] ?? [],
+          initialPermissionIds,
+          pending.permissions,
+        );
+        const nextPendingAsks = replacePendingQueue(
+          state.pendingAsks,
+          sessionId,
+          pendingAsks,
+        );
+        const nextPendingPermissions = replacePendingQueue(
+          state.pendingPermissions,
+          sessionId,
+          pendingPermissions,
+        );
         if (
-          pendingAsks === state.pendingAsks &&
-          pendingPermissions === state.pendingPermissions
+          nextPendingAsks === state.pendingAsks &&
+          nextPendingPermissions === state.pendingPermissions
         ) {
           return {};
         }
-        return { pendingAsks, pendingPermissions };
+        return {
+          pendingAsks: nextPendingAsks,
+          pendingPermissions: nextPendingPermissions,
+        };
       });
     },
 

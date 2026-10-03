@@ -261,7 +261,11 @@ const updater = new AppUpdaterController({
  * this process; the renderer sees progress events and the sidecar sees only
  * resolved request auth.
  */
-const modelsDevCatalog = new ModelsDevCatalog();
+const modelsDevCatalog = new ModelsDevCatalog({
+  catalogPath: app.isPackaged
+    ? join(process.resourcesPath, "models.dev", "api.json")
+    : join(app.getAppPath(), "resources", "models.dev", "api.json"),
+});
 
 const vendorOAuth = new VendorOAuth({
   call: <T,>(method: string, params?: unknown): Promise<T> => {

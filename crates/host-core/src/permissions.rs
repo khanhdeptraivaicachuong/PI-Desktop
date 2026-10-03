@@ -129,7 +129,10 @@ impl PermissionManager {
                 // low-risk grant. Medium preserves the normal approval path.
                 _ => Risk::Medium,
             },
-            name if name.starts_with("mcp_") => Risk::Low,
+            // MCP servers are user-configured but their tools are opaque; a
+            // self-declared annotation comes from the server, so it is not
+            // trusted and never lowers the approval path.
+            name if name.starts_with("mcp_") => Risk::Medium,
             _ => Risk::Medium,
         }
     }
@@ -693,6 +696,96 @@ mod tests {
         grants.insert("s".to_string(), vec!["Bash".to_string()]);
         let d = pm.evaluate_auto_with_permission_mode("s", "Bash", "agent", "ask", &grants);
         assert_eq!(d, Some(PermissionDecision::AllowSession));
+    }
+
+    #[test]
+    fn mcp_tools_default_to_medium_and_ignore_declared_risk() {
+        for declared in [
+            None,
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("bogus"),
+        ] {
+            assert!(
+                matches!(
+                    PermissionManager::tool_risk_with_declared("mcp_srv_tool", declared),
+                    Risk::Medium
+                ),
+                "mcp tool with declared {declared:?} must be medium"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_tools_prompt_under_ask_and_accept_edits() {
+        let pm = PermissionManager::default();
+        for mode in ["ask", "accept-edits"] {
+            for declared in [None, Some("low")] {
+                let d =
+                    pm.evaluate_auto_with_permission_mode_and_risk(PermissionEvaluationParams {
+                        session_id: "s",
+                        tool_name: "mcp_srv_tool",
+                        mode: "agent",
+                        permission_mode: mode,
+                        session_grants: &no_grants(),
+                        declared_risk: declared,
+                        requires_external_path_permission: false,
+                        plan_safe_actions: None,
+                    });
+                assert!(
+                    d.is_none(),
+                    "mcp tool must prompt under {mode} ({declared:?})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mcp_tools_auto_allow_under_auto() {
+        let pm = PermissionManager::default();
+        let d = pm.evaluate_auto_with_permission_mode(
+            "s",
+            "mcp_srv_tool",
+            "agent",
+            "auto",
+            &no_grants(),
+        );
+        assert_eq!(d, Some(PermissionDecision::AllowOnce));
+    }
+
+    #[test]
+    fn mcp_session_grant_skips_prompt() {
+        let pm = PermissionManager::default();
+        let mut grants = HashMap::new();
+        grants.insert("s".to_string(), vec!["mcp_srv_tool".to_string()]);
+        let d = pm.evaluate_auto_with_permission_mode("s", "mcp_srv_tool", "agent", "ask", &grants);
+        assert_eq!(d, Some(PermissionDecision::AllowSession));
+        let other =
+            pm.evaluate_auto_with_permission_mode("s", "mcp_srv_other", "agent", "ask", &grants);
+        assert!(other.is_none(), "grant is scoped to the exact tool name");
+    }
+
+    #[test]
+    fn mcp_tools_denied_in_contract_modes() {
+        let pm = PermissionManager::default();
+        let mut grants = HashMap::new();
+        grants.insert("s".to_string(), vec!["mcp_srv_tool".to_string()]);
+        for contract in ["plan", "goal"] {
+            for mode in ["ask", "accept-edits", "auto"] {
+                assert_eq!(
+                    pm.evaluate_auto_with_permission_mode(
+                        "s",
+                        "mcp_srv_tool",
+                        contract,
+                        mode,
+                        &grants
+                    ),
+                    Some(PermissionDecision::Deny),
+                    "mcp tool must be denied in {contract} + {mode}"
+                );
+            }
+        }
     }
 
     #[test]

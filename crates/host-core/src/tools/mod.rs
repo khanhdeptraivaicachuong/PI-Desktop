@@ -954,9 +954,10 @@ fn count_lines_fast(path: &Path) -> std::io::Result<usize> {
 /// user's MCP servers both live in Electron main, so both are forwarded over
 /// `plugins.execute` instead of being executed here.
 ///
-/// `mcp_` is treated exactly like `plugin_` for risk and read-only-mode
-/// purposes: the user typed the command or URL into the MCP editor themselves,
-/// which is at least as deliberate as accepting a plugin's manifest.
+/// `mcp_` is treated like `plugin_` for dispatch and read-only-mode purposes.
+/// For risk it matches a plugin tool without a valid declaration (`medium`):
+/// the user configured the server, but its tools and any risk they self-declare
+/// are opaque, so they keep the normal approval path (`permissions.rs`).
 pub fn is_desktop_dispatched(tool_name: &str) -> bool {
     tool_name.starts_with("plugin_") || tool_name.starts_with("mcp_")
 }

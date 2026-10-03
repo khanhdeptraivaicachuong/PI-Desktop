@@ -2,7 +2,9 @@
  * A renderer reload forgets the decision cards: `pendingAsks` and
  * `pendingPermissions` live in renderer memory only. Main still holds the open
  * ask questions and the gated tool requests, so `restorePendingInteractive`
- * rebuilds the cards from that read — as a merge that never clears a queue.
+ * reconciles the cards from that read without resurrecting answered requests.
+ * A failed read remains non-destructive, and a request delivered while the
+ * read is in flight is preserved.
  */
 import assert from "node:assert/strict";
 import { register } from "node:module";
@@ -174,18 +176,46 @@ test("another session's queues stay untouched", async (t) => {
   assert.equal(h.get().pendingPermissions["session-a"][0].requestId, "perm-1");
 });
 
-test("an empty read is a no-op for cards the user can still answer", async (t) => {
-  const liveAsk = askFor("session-a", "ask-live");
+test("a successful empty read clears cards answered outside the renderer", async (t) => {
+  const liveAsk = askFor("session-a", "ask-answered-elsewhere");
+  const livePermission = permissionFor("session-a", "perm-answered-elsewhere");
   const h = harness({
     pendingAsks: enqueueAsk({}, liveAsk),
-    pendingPermissions: enqueuePermission({}, permissionFor("session-a", "perm-live")),
+    pendingPermissions: enqueuePermission({}, livePermission),
   });
   t.mock.method(api, "pendingInteractive", async () => ({ asks: [], permissions: [] }));
 
   await h.slice.restorePendingInteractive("session-a");
 
-  assert.deepEqual(h.get().pendingAsks["session-a"], [liveAsk]);
-  assert.equal(h.get().pendingPermissions["session-a"].length, 1);
+  assert.equal(h.get().pendingAsks["session-a"], undefined);
+  assert.equal(h.get().pendingPermissions["session-a"], undefined);
+});
+
+test("a newer restore result wins over an older overlapping read", async (t) => {
+  const oldAsk = askFor("session-a", "ask-old");
+  const h = harness({ pendingAsks: enqueueAsk({}, oldAsk) });
+  let releaseFirst;
+  let readCount = 0;
+  const firstRead = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  t.mock.method(api, "pendingInteractive", () => {
+    readCount += 1;
+    return readCount === 1
+      ? firstRead
+      : Promise.resolve({ asks: [askFor("session-a", "ask-new")], permissions: [] });
+  });
+
+  const firstRestore = h.slice.restorePendingInteractive("session-a");
+  const secondRestore = h.slice.restorePendingInteractive("session-a");
+  await secondRestore;
+  releaseFirst({ asks: [], permissions: [] });
+  await firstRestore;
+
+  assert.deepEqual(
+    h.get().pendingAsks["session-a"].map((entry) => entry.requestId),
+    ["ask-new"],
+  );
 });
 
 test("a rejected read leaves the queues exactly as the live stream left them", async (t) => {

@@ -11,6 +11,7 @@ import {
 } from "@pi-desktop/shared";
 import {
   capabilitiesFromModelConfig,
+  modelConfigWithBinding,
   type ModelConfig,
   visionFromModelConfig,
   type ThinkingCapabilities,
@@ -98,7 +99,14 @@ export function createProviderCatalogRuntime({
     const modelConfig = modelsDevCatalog.modelConfigFor({
       providerId: provider.id, vendorKey: provider.vendorKey, baseUrl: provider.baseUrl, modelId,
     }, catalogModelConfig);
-    return { modelConfig, capabilities: capabilitiesFromModelConfig(modelConfig) };
+    const effectiveModelConfig = modelConfigWithBinding(
+      modelConfig,
+      bindingForModel(provider, modelId),
+    );
+    return {
+      modelConfig: effectiveModelConfig,
+      capabilities: capabilitiesFromModelConfig(effectiveModelConfig),
+    };
   };
 
   const enrichProvider = <T extends RuntimeProvider>(
@@ -112,9 +120,13 @@ export function createProviderCatalogRuntime({
       provider.defaultModelId ||
       "";
     modelsDevCatalog.configureAccount(provider);
-    const modelConfig = catalogModelConfigFor(modelsDevCatalog, {
+    const catalogConfig = catalogModelConfigFor(modelsDevCatalog, {
       providerId: provider.id, vendorKey: provider.vendorKey, baseUrl: provider.baseUrl, modelId,
     });
+    const modelConfig = modelConfigWithBinding(
+      catalogConfig,
+      bindingForModel(provider, modelId),
+    );
     const models = provider.models?.map((binding) => {
       const catalogConfig = catalogModelConfigFor(modelsDevCatalog, {
         providerId: provider.id, vendorKey: provider.vendorKey, baseUrl: provider.baseUrl, modelId: binding.id,
@@ -330,9 +342,13 @@ export function createProviderCatalogRuntime({
     }
     const { provider, modelId } = target;
     modelsDevCatalog.configureAccount(provider);
-    const modelConfig = catalogModelConfigFor(modelsDevCatalog, {
+    const catalogConfig = catalogModelConfigFor(modelsDevCatalog, {
       providerId: provider.id, vendorKey: provider.vendorKey, baseUrl: provider.baseUrl, modelId,
     });
+    const modelConfig = modelConfigWithBinding(
+      catalogConfig,
+      bindingForModel(provider, modelId),
+    );
     return {
       ...session,
       ...capabilitiesFromModelConfig(modelConfig),
