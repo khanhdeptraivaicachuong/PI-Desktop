@@ -6996,6 +6996,20 @@ eleven-tool-round desktop paths are verified by
 - **验收**：B（模型配置）、质量
 - **里程碑**：M6+
 
+#### E2E-OAUTH-anthropic-copy-code：Anthropic 复制代码登录复用现有提示桥接
+
+- **前置条件**：本地 token 端点夹具只拦截 Anthropic OAuth token URL。生产 pi-ai
+  Anthropic 流程与 Desktop `VendorOAuth` 使用内存 Host RPC 夹具；不使用真实账户或远程端点。
+- **步骤**：发起 Anthropic 厂商登录；在 `select` 提示中选择 `copy_code`；检查授权 URL；
+  为 manual-code 提示输入合成的 `code#state`；通过夹具完成 token 交换；解析请求认证并检查
+  Host 中存储的凭据。
+- **预期**：选择项保留 `browser` 和 `copy_code`；授权 URL 使用
+  `https://platform.claude.com/oauth/code/callback`；token 交换成功；refresh 凭据保存在
+  provider 作用域的 Host OAuth 引用中，运行时只获得短期 access token；不创建 API-key secret。
+- **链接规格**：`03-runtime/14-secrets-storage.md` §10；`07-plugins/16-trusted-extensions.md` §4。
+- **验收**：B（厂商账户）、安全、质量。
+- **状态**：本地 provider-flow 集成夹具；未验证真实账户或渲染器视觉流程。
+
 #### E2E-164：上下文压缩保留活动任务边界
 
 - **先决条件**：提供商夹具可以在一个会话中完成多个连续任务，在终止边界触发自动
@@ -7694,18 +7708,20 @@ runner 会在运行时的隔离临时目录中生成六个插件形态 fixture�
 
 #### E2E-244：不支持的 API、加载错误与处理器超时降级为诊断
 
-- **前置条件**：三个已启用的夹具扩展：一个在顶层导入 `@earendil-works/pi-tui` 并
-  调用 `ui.setWidget`；一个模块在加载时抛出；一个 `context` 处理器永不返回。
-- **步骤**：1）开始一个回合。2）打开每个条目的诊断抽屉。3）等待超过 30 秒处理器
-  限制。4）禁用抛出的扩展并开始另一个回合。
+- **前置条件**：四个已启用的夹具扩展：一个在顶层导入 `@earendil-works/pi-tui` 并
+  调用 `ui.setWidget`；一个从 `@earendil-works/pi-coding-agent` 导入不支持的命名导出；
+  一个模块在加载时抛出；一个 `context` 处理器永不返回。
+- **步骤**：1）开始一个回合。2）打开每个条目的诊断抽屉。3）确认不支持的导出仍为
+  undefined。4）等待超过 30 秒处理器限制。5）禁用抛出的扩展并开始另一个回合。
 - **预期**：pi-tui 导入成功，`setWidget` 返回惰性 `dispose`，每个成员记录一条诊断；
-  抛出的扩展显示 `error` 及消息和堆栈，composer 显示一行提示，其余扩展仍加载；
+  不支持的 coding-agent 导出保持不可用并记录 `unsupported_api`；抛出的扩展显示 `error`
+  及消息和堆栈，composer 显示一行提示，其余扩展仍加载；
   停滞的处理器在 30 秒后被放弃并记诊断，回合以未修改的上下文完成；禁用后提示在
   下一回合边界消失，且没有运行中的回合被打断。
 - **链接规格**：`07-plugins/16-trusted-extensions.md` §4.2、§4.4、§5、§6
 - **验收**：质量
 - **里程碑**：MVP 后（R7 v1）
-- **状态**：部分自动化（`pnpm test:e2e:trusted-extensions`）；加载错误与惰性 terminal-UI API 会降级为诊断；停滞处理器超时和边界禁用旅程仍需额外验证
+- **状态**：部分自动化（`pnpm test:e2e:trusted-extensions`）；`runner.test.ts` 通过真实 Jiti loader 覆盖缺失的静态命名导出；该导入对应的诊断抽屉渲染、停滞处理器超时和边界禁用旅程仍需额外验证
 
 #### E2E-245：打包后的 sidecar 经 jiti 加载 TypeScript 扩展
 

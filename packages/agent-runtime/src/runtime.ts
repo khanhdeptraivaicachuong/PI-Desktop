@@ -2594,6 +2594,10 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   private extensionModelRegistry(): Record<string, unknown> {
     const getRunner = () => this.extensionRunner;
     const models = () => [this.model, ...(getRunner()?.getAgentModels() ?? [])];
+    const hasConfiguredProvider = (providerId: string) =>
+      providerId === this.provider.id ||
+      providerId === this.model.provider ||
+      (getRunner()?.getAgents().some((agent) => agent.providerId === providerId) ?? false);
     return {
       getAll: () => [...new Map(models().map((model) => [`${model.provider}/${model.id}`, model])).values()],
       getAvailable: () => [...new Map(models().map((model) => [`${model.provider}/${model.id}`, model])).values()],
@@ -2603,12 +2607,11 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         getRunner()?.getAgents().find((agent) => agent.providerId === providerId)?.name ??
         (providerId === this.provider.id ? this.provider.name : providerId),
       getProviderAuthStatus: (providerId: string) => ({
-        configured: [this.provider.id, ...(getRunner()?.getAgents().map((agent) => agent.providerId) ?? [])].includes(providerId),
+        configured: hasConfiguredProvider(providerId),
         source: "plugin",
       }),
       hasConfiguredAuth: (model: { provider?: string }) =>
-        typeof model.provider === "string" &&
-        [this.provider.id, ...(getRunner()?.getAgents().map((agent) => agent.providerId) ?? [])].includes(model.provider),
+        typeof model.provider === "string" && hasConfiguredProvider(model.provider),
     };
   }
 

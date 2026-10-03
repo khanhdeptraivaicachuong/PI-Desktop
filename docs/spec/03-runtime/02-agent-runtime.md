@@ -1564,7 +1564,7 @@ with the original v3 `SessionManager`, Pi `ModelRuntime`, `SettingsManager`, and
 leaf, compaction, model/thinking changes, and context-bearing custom messages;
 it is never reconstructed from renderer `UiMessage` rows.
 
-The 0.99.1 SDK also applies append-only `context_edit` entries to this model
+The Pi 1.0.0 SDK also applies append-only `context_edit` entries to this model
 projection. An edit can omit or replace an earlier message for later provider
 requests without rewriting its raw JSONL entry or the visible native history.
 Native Pi extensions use the SDK's boundary hooks; all entries they append,
@@ -1634,7 +1634,7 @@ and never triggers a provider transport rebuild. Protocol errors such as
 `EPROTO` keep their existing retry behavior. See
 [certificate trust ADR](../../adr/provider-system-certificates.md).
 
-## Pi 0.99.1 execution boundary
+## Pi 1.0.0 execution boundary
 
 Published model metadata and account entitlement come from one account-scoped
 Pi Models collection. Effective binding projection is shared by launch, delegates

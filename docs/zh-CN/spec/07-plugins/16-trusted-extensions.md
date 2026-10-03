@@ -136,6 +136,9 @@ main、渲染层或插件宿主进程中。
   工具结果类型守卫。`@earendil-works/pi-tui` 解析到一个桩
   模块，它把每个符号导出为惰性值，使顶层 import 永不失败。调用被桩替代的
   符号时在调用点产生一条诊断。
+- 可信扩展的 coding-agent shim 仅公开文档列出的受支持助手。导入或访问其他根导出会
+  产生 `unsupported_api` 诊断；该导出仍不可用，loader 不会加载完整 coding-agent
+  运行时作为回退。
 
 ### 4.3 每会话一个 Runner
 
