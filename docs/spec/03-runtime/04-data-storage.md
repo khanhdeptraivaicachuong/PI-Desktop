@@ -1105,7 +1105,7 @@ CREATE TABLE scheduled_tasks (
   id          TEXT PRIMARY KEY,
   title       TEXT NOT NULL,
   prompt      TEXT NOT NULL,
-  cadence     TEXT NOT NULL DEFAULT 'manual',  -- manual | hourly | daily | weekly
+  cadence     TEXT NOT NULL DEFAULT 'manual',  -- manual | hourly | interval | daily | weekly
   enabled     INTEGER NOT NULL DEFAULT 1,
   project_id  INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   config_json TEXT NOT NULL DEFAULT '{}',      -- mode, cron expr, model override, notify policy
@@ -1127,14 +1127,43 @@ CREATE INDEX idx_task_runs ON task_runs(task_id, started_at DESC);
 ```
 
 A run that spawns a session gets its transcript for free via `session_id`.
+That transcript is identified as automation output by an `EXISTS` check against
+`task_runs` that every session summary and search hit carries as `scheduledRun`.
+The ownership is derived on read and never stored on the session row, so the
+SessionList and session search hide the transcript while it has a run, and
+deleting the task returns it to the ordinary lists instead of leaving it
+unreachable (issue #1291).
+`scheduled.listRuns` answers two shapes: one task's own history (`taskId`, at most
+200 rows) and one newest run per task (`latestPerTask`, one row per task, never
+combined with `taskId`). The task column reads the second shape. A global window
+over `task_runs` can be filled by one busy task — retention keeps the last 100
+runs *per task* — and would then report an idle task as never run, so the read
+that feeds the column is per task rather than a shared window.
+Retention keeps the newest 100 runs per task (`TASK_RUNS_KEEP`, applied on every
+boot). Ownership is derived from those rows, so a pruned run takes two things
+with it: the run leaves the task's history, and its session stops carrying
+`scheduledRun`, which returns that transcript to the SessionList and to session
+search. A task that runs faster than the kept window — an `interval` task from
+five minutes up, an hourly task after roughly four days — reaches that boundary;
+replacing the derived marker with a persistent origin is tracked with the rest
+of issue #1291.
+The task page also reads at most 200 runs per task, the bound
+`scheduled.listRuns` enforces for a single task's history.
 The existing JSON extension stores `schedule: {hour, minute, weekday}`,
-`nextRunAt` (epoch milliseconds) and `workspacePath` for desktop automations.
+`intervalMinutes` (5–1440; required by an `interval` cadence and read by no other
+one, so a schedule that keeps the field keeps its value), `nextRunAt` (epoch
+milliseconds), `workspacePath`, and `sessionMode` (`perRun` or `reuse`, absent
+means `perRun`) for desktop automations.
 Optional `weekdays` stores 1–7 unique integers in 0–6, overriding legacy
 `weekday` for weekly schedules. Missing `weekdays` preserves the single-day
 behavior. Invalid or empty selections are rejected before mutation. No table
 migration is needed. Daily/weekly schedules use the host local timezone; hourly
-schedules compute `nextRunAt = now + 3_600_000`, ignoring calendar fields. Absence
-of `schedule` leaves legacy tasks unarmed. No physical schema change is made.
+and interval schedules count elapsed time from the moment they were armed:
+hourly computes `nextRunAt = now + 3_600_000` and interval computes
+`nextRunAt = now + intervalMinutes × 60_000`, both ignoring calendar fields.
+An `interval` task whose schedule carries no `intervalMinutes` is refused rather
+than saved unarmed. Absence of `schedule` leaves legacy tasks unarmed. No
+physical schema change is made.
 Task wire fields project `schedule`, RFC3339 `nextRunAt`, `workspacePath` and the
 optional task-owned `permissionMode` plus paired `providerId`/`modelId` values.
 These additive values stay in `config_json`; no physical migration is required.

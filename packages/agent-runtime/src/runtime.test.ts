@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { estimateContextTokens as estimateAgentContextTokens, estimateTokens, type Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { type Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   createAssistantMessageEventStream,
   getCurrentTools,
@@ -10,6 +10,7 @@ import {
 import { formatSessionMessage, type SessionMessageOrigin } from "@pi-desktop/shared";
 import { estimateContextTokens as estimateTranscriptTokens } from "@earendil-works/pi-ai/utils/estimate";
 import { buildSessionContext } from "./session-context.js";
+import { estimateContextTokens as estimateAgentContextTokens, estimateTokens } from "./pi-runtime-estimates.js";
 import {
   COMPACTION_FALLBACK_MARKER,
   DesktopAgentRuntime,
@@ -5942,9 +5943,9 @@ describe("DesktopAgentRuntime per-turn context protection", () => {
   it("keeps the summary a fallback checkpoint carries forward", async () => {
     // A fallback checkpoint stores any carried-forward summary ahead of its
     // recovery notice (see `createFallbackCheckpoint`). The next preparation
-    // must strip only the notice: pi's `prepareCompaction` cannot rebuild the
-    // older context from the transcript on its own, so dropping the carried
-    // summary would lose it permanently (#224).
+    // must strip only the notice: preparation cannot rebuild the older context
+    // from the transcript on its own, so dropping the carried summary would
+    // lose it permanently (#224).
     const runtime = createRuntime();
     (runtime as any).fullEntries = [
       {
@@ -8958,9 +8959,11 @@ describe("DesktopAgentRuntime compaction request headers", () => {
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.sessionId).toBe("session-1");
+    expect(calls[0]?.headers?.["x-opencode-session"]).toMatch(
+      /^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+    );
     expect(calls[0]?.headers).toMatchObject({
-      "x-opencode-session": "session-1",
-      "x-opencode-client": "pi-desktop",
+      "x-opencode-client": "cli",
       "X-Team": "platform",
     });
     await runtime.dispose();

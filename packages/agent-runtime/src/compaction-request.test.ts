@@ -3,8 +3,10 @@ import type { AssistantMessage, Api, Model, Models, ModelsSimpleStreamOptions } 
 import {
   OPENCODE_CLIENT_HEADER,
   OPENCODE_CLIENT_VALUE,
+  OPENCODE_REQUEST_HEADER,
   OPENCODE_SESSION_HEADER,
   OPENCODE_USER_AGENT,
+  deriveOpenCodeSessionId,
 } from "./opencode-session-headers.js";
 import {
   compactionRequestOptions,
@@ -51,9 +53,12 @@ describe("compactionRequestOptions", () => {
     expect(options.sessionId).toBe("session-1");
     expect(options.maxTokens).toBe(4_096);
     expect(options.headers).toMatchObject({
-      [OPENCODE_SESSION_HEADER]: "session-1",
+      [OPENCODE_SESSION_HEADER]: deriveOpenCodeSessionId("session-1"),
       [OPENCODE_CLIENT_HEADER]: OPENCODE_CLIENT_VALUE,
       "User-Agent": OPENCODE_USER_AGENT,
+      [OPENCODE_REQUEST_HEADER]: expect.stringMatching(
+        /^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+      ),
     });
   });
 
@@ -130,7 +135,7 @@ describe("withCompactionRequestHeaders", () => {
     expect(completeSimple.mock.calls[0]?.[2]).toMatchObject({
       sessionId: "session-1",
       maxTokens: 4_096,
-      headers: { [OPENCODE_SESSION_HEADER]: "session-1" },
+      headers: { [OPENCODE_SESSION_HEADER]: deriveOpenCodeSessionId("session-1") },
     });
     // Every other member is still the collection's own.
     expect(wrapped.getModel("row-uuid", "glm-5.3-flash")).toBe(model);
@@ -307,5 +312,5 @@ describe("compaction summary conversation key", () => {
   expect(new Set(reports.map(usage => usage.operationId)).size).toBe(2);
   expect(reports[0]).toMatchObject({ providerId: provider.id, modelId: model.id, totalTokens: 15, costStatus: "unknown" });
   expect((failed.usage as unknown as { desktopUsage?: { operationId?: string } }).desktopUsage?.operationId).toBe(reports[0]?.operationId);
-  expect(completeSimple.mock.calls[0]?.[2]).toMatchObject({ sessionId: "summary-session", headers: { [OPENCODE_SESSION_HEADER]: "summary-session" } });
+  expect(completeSimple.mock.calls[0]?.[2]).toMatchObject({ sessionId: "summary-session", headers: { [OPENCODE_SESSION_HEADER]: deriveOpenCodeSessionId("summary-session") } });
 });

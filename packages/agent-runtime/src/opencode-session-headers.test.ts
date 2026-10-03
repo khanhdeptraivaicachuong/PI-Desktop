@@ -6,15 +6,21 @@ import {
   type Model,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { APP_VERSION } from "@pi-desktop/shared";
 import { completeOneShot } from "./one-shot-complete.js";
 import {
   OPENCODE_CLIENT_HEADER,
   OPENCODE_CLIENT_VALUE,
+  OPENCODE_CLI_VERSION,
+  OPENCODE_REQUEST_HEADER,
   OPENCODE_SESSION_HEADER,
   OPENCODE_USER_AGENT,
+  deriveOpenCodeSessionId,
+  isOpenCodeRequestId,
+  isOpenCodeSessionId,
   isOpenCodeEndpoint,
   mergeOpenCodeSessionHeaders,
+  newOpenCodeRequestId,
+  newOpenCodeSessionId,
   withOpenCodeSessionHeaders,
 } from "./opencode-session-headers.js";
 import type { RuntimeProviderConfig } from "./provider-binding.js";
@@ -84,21 +90,26 @@ describe("isOpenCodeEndpoint", () => {
 });
 
 describe("mergeOpenCodeSessionHeaders", () => {
-  it("injects session, client, and user-agent headers", () => {
-    expect(
-      mergeOpenCodeSessionHeaders({
-        apiStyle: "opencode_go",
-        sessionId: "session-1",
-      }),
-    ).toEqual({
-      [OPENCODE_SESSION_HEADER]: "session-1",
-      [OPENCODE_CLIENT_HEADER]: OPENCODE_CLIENT_VALUE,
-      "User-Agent": `pi-desktop/${APP_VERSION}`,
+  it("injects stamped request id with the native CLI identity", () => {
+    const headers = mergeOpenCodeSessionHeaders({
+      apiStyle: "opencode_go",
+      sessionId: "session-1",
     });
-    expect(OPENCODE_USER_AGENT).toBe(`pi-desktop/${APP_VERSION}`);
+    // merge is verbatim: the timestamp-encoded wire session id is derived by
+    // withOpenCodeSessionHeaders (tested below). merge only adds what's missing.
+    expect(headers?.[OPENCODE_SESSION_HEADER]).toBe("session-1");
+    expect(headers?.[OPENCODE_REQUEST_HEADER]).toMatch(
+      /^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+    );
+    expect(headers).toMatchObject({
+      [OPENCODE_CLIENT_HEADER]: "cli",
+      "User-Agent": `opencode/${OPENCODE_CLI_VERSION}`,
+    });
+    expect(OPENCODE_CLIENT_VALUE).toBe("cli");
+    expect(OPENCODE_USER_AGENT).toBe(`opencode/${OPENCODE_CLI_VERSION}`);
   });
 
-  it("lets caller headers override client/UA but restores a missing session id", () => {
+  it("forces the native client identity but restores a missing session id", () => {
     expect(
       mergeOpenCodeSessionHeaders({
         apiStyle: "opencode_go",
@@ -106,15 +117,31 @@ describe("mergeOpenCodeSessionHeaders", () => {
         headers: {
           [OPENCODE_SESSION_HEADER]: null,
           [OPENCODE_CLIENT_HEADER]: "custom-client",
+          "User-Agent": "third-party/9.9",
           "X-Extra": "keep",
         },
       }),
     ).toEqual({
       [OPENCODE_SESSION_HEADER]: "session-1",
-      [OPENCODE_CLIENT_HEADER]: "custom-client",
+      [OPENCODE_REQUEST_HEADER]: expect.stringMatching(
+        /^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+      ),
+      // A stale third-party client identity would fail the free-tier
+      // signature, so it is forced — unlike ordinary caller headers.
+      [OPENCODE_CLIENT_HEADER]: "cli",
       "User-Agent": OPENCODE_USER_AGENT,
       "X-Extra": "keep",
     });
+  });
+
+  it("keeps a genuine opencode User-Agent suffix", () => {
+    expect(
+      mergeOpenCodeSessionHeaders({
+        apiStyle: "opencode_go",
+        sessionId: "session-1",
+        headers: { "User-Agent": "opencode/1.18.32 VercelAI/5.0" },
+      })?.["User-Agent"],
+    ).toBe("opencode/1.18.32 VercelAI/5.0");
   });
 
   it("preserves an explicit session header", () => {
@@ -149,7 +176,7 @@ describe("mergeOpenCodeSessionHeaders", () => {
 });
 
 describe("withOpenCodeSessionHeaders", () => {
-  it("reuses options.sessionId and leaves retries with the same object fields", () => {
+  it("keeps the harness sessionId on the options and derives a stable wire id", () => {
     const options: SimpleStreamOptions = { temperature: 0 };
     const first = withOpenCodeSessionHeaders(options, {
       apiStyle: "opencode_go",
@@ -158,17 +185,30 @@ describe("withOpenCodeSessionHeaders", () => {
     const second = withOpenCodeSessionHeaders(first, {
       apiStyle: "opencode_go",
     });
+    // Routing still uses the harness id; the wire header carries the derived
+    // timestamp-encoded id the gateway pins the conversation by.
     expect(first.sessionId).toBe("session-1");
     expect(second.sessionId).toBe("session-1");
-    expect(first.headers?.[OPENCODE_SESSION_HEADER]).toBe("session-1");
-    expect(second.headers?.[OPENCODE_SESSION_HEADER]).toBe("session-1");
+    expect(first.headers?.[OPENCODE_SESSION_HEADER]).toBe(
+      deriveOpenCodeSessionId("session-1"),
+    );
+    expect(second.headers?.[OPENCODE_SESSION_HEADER]).toBe(
+      first.headers?.[OPENCODE_SESSION_HEADER],
+    );
+    // A retry reuses the same options object, so the request id it already
+    // carries is preserved and the retry stays byte-identical.
+    expect(first.headers?.[OPENCODE_REQUEST_HEADER]).toMatch(
+      /^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+    );
+    expect(second.headers?.[OPENCODE_REQUEST_HEADER]).toBe(
+      first.headers?.[OPENCODE_REQUEST_HEADER],
+    );
     expect(first.temperature).toBe(0);
   });
 
-  it("synthesizes a session id for OpenCode one-shot calls that have none", () => {
+  it("synthesizes a stamped session id for OpenCode one-shot calls that have none", () => {
     const result = withOpenCodeSessionHeaders({}, { apiStyle: "opencode_go" });
-    expect(result.sessionId).toEqual(expect.any(String));
-    expect(result.sessionId?.length).toBeGreaterThan(8);
+    expect(result.sessionId).toMatch(/^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/);
     expect(result.headers?.[OPENCODE_SESSION_HEADER]).toBe(result.sessionId);
   });
 
@@ -243,10 +283,15 @@ describe("completeOneShot OpenCode headers", () => {
     expect(result.text).toBe("ok");
     expect(result.usage).toMatchObject({ operationId: expect.any(String), providerId: provider.id, modelId: provider.modelId });
     expect(captured?.sessionId).toBe("session-9");
+    expect(captured?.headers?.[OPENCODE_SESSION_HEADER]).toBe(
+      deriveOpenCodeSessionId("session-9"),
+    );
     expect(captured?.headers).toMatchObject({
-      [OPENCODE_SESSION_HEADER]: "session-9",
-      [OPENCODE_CLIENT_HEADER]: OPENCODE_CLIENT_VALUE,
+      [OPENCODE_CLIENT_HEADER]: "cli",
       "User-Agent": OPENCODE_USER_AGENT,
+      [OPENCODE_REQUEST_HEADER]: expect.stringMatching(
+        /^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+      ),
     });
   });
 
@@ -356,6 +401,37 @@ describe("completeOneShot OpenCode headers", () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+});
+
+describe("stamped OpenCode ids", () => {
+  it("mints ses_/msg_ ids in the native shape", () => {
+    expect(newOpenCodeSessionId()).toMatch(/^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/);
+    expect(newOpenCodeRequestId()).toMatch(/^msg_[0-9a-f]{12}[A-Za-z0-9]{14}$/);
+    expect(isOpenCodeSessionId(newOpenCodeSessionId())).toBe(true);
+    expect(isOpenCodeRequestId(newOpenCodeRequestId())).toBe(true);
+  });
+
+  it("rejects UUID, random, and cross-prefix ids", () => {
+    expect(isOpenCodeSessionId("123e4567-e89b-12d3-a456-426614174000")).toBe(false);
+    expect(isOpenCodeSessionId("ses_" + "x".repeat(26))).toBe(false);
+    expect(isOpenCodeSessionId(newOpenCodeRequestId())).toBe(false);
+    expect(isOpenCodeRequestId(newOpenCodeSessionId())).toBe(false);
+    expect(isOpenCodeSessionId("  ")).toBe(false);
+  });
+
+  it("derives one stable id per harness conversation", () => {
+    const first = deriveOpenCodeSessionId("conv-7");
+    expect(first).toMatch(/^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/);
+    expect(deriveOpenCodeSessionId("conv-7")).toBe(first);
+    expect(deriveOpenCodeSessionId("conv-8")).not.toBe(first);
+  });
+
+  it("mints a fresh id for ad-hoc calls without a conversation", () => {
+    expect(deriveOpenCodeSessionId("   ")).toMatch(
+      /^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$/,
+    );
+    expect(deriveOpenCodeSessionId("")).not.toBe(deriveOpenCodeSessionId(""));
   });
 });
 

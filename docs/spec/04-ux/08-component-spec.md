@@ -1317,6 +1317,12 @@ unpinned history for retained project tabs and path-less sessions.
 Pin/archive/collapse state is a presentation over durable host
 sessions, not a replacement persistence model.
 
+A scheduled-task run's transcript is never part of this list: the run owns its
+session (`task_runs.session_id`), the host reports that ownership as
+`scheduledRun` on every session summary, and the Scheduled route is its entry
+point. Global session search hides the same rows. Deleting the task releases the
+transcript back into the ordinary lists (issue #1291).
+
 ### 6.2 Anatomy
 
 Groups and session items:
@@ -3899,6 +3905,13 @@ default nor provider configuration. OAuth accounts remain in their separate sect
   and resize; model selection immediately adds or removes its configuration
   row. Configuration rows stay compact until expanded; expanding one row does
   not expand or collapse any other row.
+- Model rows show the published context and output limits. A generic runtime
+  fallback is not shown as a published limit; Settings displays an em dash
+  until models.dev publishes a value or the user pins one in Advanced.
+- The two model panes remain side by side when the viewport is wide enough,
+  including short wide windows; their lists scroll inside the panes. They stack
+  only when the viewport is too narrow for readable columns, and their lists
+  remain reachable in that layout.
 - The left-pane list header carries a checkbox that selects or clears every
   currently visible row. A search filter narrows which rows "all" means;
   already-chosen bindings keep their advanced overrides. The checkbox is
@@ -4080,6 +4093,83 @@ Sidebar footer                                        Popover (360px max)
   prompt banners are transient native surfaces outside the inbox.
 
 ---
+
+## 20A. ScheduledWorkspace
+
+### 20A.1 Purpose
+
+Read and operate scheduled tasks: what each task did last, what it will do next,
+and the transcript of any run — without leaving the route. See
+[desktop automations](../../adr/scheduled-desktop-automations.md) and issue #1291.
+
+### 20A.2 Anatomy
+
+A task column beside the selected task's page:
+
+```text
+TASKS (2)                     │ Nightly dependency check   [Enabled] [Run now][Edit][Pause][Delete]
+● Nightly dependency check    │ LAST RUN   Failed · 2 hours ago · 1m 12s
+  Daily · 09:05               │ NEXT RUN   in 21 hours · Jan 3, 2026, 9:05 AM
+  Failed · 2 hours ago · 1m12s│ CADENCE    Daily · 09:05
+○ PR sweep           [Disabled]│ PROJECT   ~/project  PERMISSION Auto  MODEL custom / fixture
+  Manual                      │ INSTRUCTION  Summarize the dependency state…   [Show full instruction]
+  Not run yet                 │ RUN HISTORY (2)
+                              │  Failed    Jan 2, 2026, 12:00 AM · 1m 12s · PROVIDER_ERROR
+                              │  Completed Jan 1, 2026, 12:00 AM · 42s
+                              │ RUN CONTENT
+                              │  Completed · Jan 1, 2026 · 42s        [Open conversation]
+                              │  USER       Summarize the dependency state…
+                              │  ASSISTANT  Scheduled review complete.
+```
+
+### 20A.3 States
+
+| State | Appearance |
+|---|---|
+| Selected task | Accent-tinted raised tile with the shared raised shadow and a 2px accent bar on the leading edge, and one `aria-current="true"`. The tint matters in both themes: a plain raised fill is white on white in the light theme |
+| Selected run | The same accent tint with the leading bar, one step lighter because the row sits inside a card |
+| Running task | Warning-coloured dot in the row plus a `Running / awaiting input` badge |
+| Paused task | `Disabled` chip; the row still reports its last outcome |
+| Never run | `Not run yet` in the row's outcome line |
+| Completed run | Success glyph, status, moment and duration |
+| Failed run | Error glyph and the stable error code beside the moment |
+| Running run | No duration yet; the status reads as running |
+| Empty history | The history card states the task has no runs |
+| No transcript | The run content card states the run stored no transcript |
+| Read failure | The card reports the failure instead of showing an empty pane |
+
+### 20A.4 Interaction
+
+- Selecting a task moves the page; the previously selected run is released, and
+  the first task is selected when none is.
+- Selecting a run reads it in place through a bounded session read (60 newest
+  messages, 20 000 characters per field) and moves the content card to it.
+- The instruction is disclosed on demand and starts collapsed.
+- Run now dispatches in the background, selects the run it admitted, and keeps
+  the reader on the route.
+- The conversation mode decides who owns a run's transcript: `perRun` opens a
+  conversation for each run, and `reuse` continues the task's previous one while
+  it still exists and still belongs to the same project.
+- The task form owns the page while it is open: the task column and the task
+  page are not rendered, so the draft never competes with the page it came from.
+- An interval task states a count with a minute or hour unit (5 minutes to 24
+  hours, stored as minutes, refused outside that range). The value rides along
+  with every armed cadence, so switching between a calendar and an interval
+  loses neither, and the row reports the span instead of a clock.
+- Ownership is derived, so the two windows are visible: the host keeps the newest
+  100 runs per task and the page reads at most 200, and a run older than either
+  leaves both the task's history and its transcript's `scheduledRun` marker. See
+  [data storage](../03-runtime/04-data-storage.md) §4.11.
+- Open conversation is the only action that leaves for the chat route. A
+  scheduled run's conversation then shows a back row in the chat top bar,
+  labelled with the route and, when the row's own origin is known, the task it
+  belongs to; returning restores that task and that run, and steps back through
+  the navigation history when this route is directly behind the conversation.
+- Above 900px the task column sticks below the titlebar band; below it the
+  column stacks above the page.
+- Motion: colour and chevron transitions only, disabled under
+  `prefers-reduced-motion`, including the running dot's pulse.
+
 
 ## 21. Acceptance criteria (all components)
 
