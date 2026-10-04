@@ -68,6 +68,7 @@ export function messageThinking(message: UiMessage): string {
 }
 
 function isVisibleMessage(message: UiMessage): boolean {
+  if (message.role === "system" && message.modelSystem) return false;
   return !(
     message.role === "assistant" &&
     !(message.content || "").trim() &&

@@ -174,7 +174,7 @@ PI-Desktop 不得把用户永久限制在一份简短的固定模型列表上。
 
 ### 6.2 Catalog responsibilities
 
-1. pi-ai 0.99.1 Providers/Models own published metadata, transport, thinking
+1. pi-ai 1.0.1 Providers/Models own published metadata, transport, thinking
    support and native operation types. Electron's historically named
    `ModelsDevCatalog` is an account-aware adapter over this public API.
 2. Startup is cache-only and disables ambient environment/file credentials.
@@ -381,7 +381,7 @@ Codex CLI 版本（`CODEX_MODELS_CLIENT_VERSION`），账户模型缺失时调�
 
 ### Anthropic token 端点限流
 
-固定版本 pi-ai 0.99.1 的仓库补丁为 Anthropic 授权码交换与刷新提供同一套
+固定版本 pi-ai 1.0.1 的仓库补丁为 Anthropic 授权码交换与刷新提供同一套
 有限策略：只重试明确的 HTTP 429，最多总共三次请求。先等待至少 1 秒、再
 等待至少 2 秒；若 `Retry-After` 给出更长的秒数或 HTTP 日期，则遵守该时间。
 服务器要求的等待超出剩余预算时结束本次尝试，不缩短等待后提前重试。
@@ -575,14 +575,10 @@ UI 可能会显示层级提示，但默认情况下不得硬阻止未知模型�
 
 ### 16.1 Responses 流终止（pi-ai 补丁）
 
-OpenAI Responses 适配器必须把 `response.completed`（以及
-`response.incomplete`）视为流的终点：完成响应收尾后即停止消费流，
-而不是继续等待服务端的 TCP FIN。上游 pi-ai 会一直迭代直到服务端关闭
-连接，在保持空闲连接不关的反向代理后面会导致整个回合挂起。在该修复
-随上游发布之前，`patches/` 通过 pnpm patch 修改
-`@earendil-works/pi-ai@0.99.1`，在终态事件处跳出事件循环（消费方停止
-迭代时 OpenAI SDK 会中止底层请求）。待 pi-ai 发布包含该修复的版本后
-移除补丁。
+OpenAI Responses 适配器会把 `response.completed` 和
+`response.incomplete` 视为流终点，因此反向代理即使保持 TCP 连接打开，
+终态事件之后也不会继续挂起本轮请求。pi-ai 1.0.0 已包含这项上游修复；
+1.0.0 hosted-search 补丁不再重复应用旧 0.99.1 终态事件代码。
 
 ## 17. 多提供商产品规则
 

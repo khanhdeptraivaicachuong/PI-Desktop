@@ -3275,14 +3275,22 @@
   font-size: var(--text-sm);
 }
 
-/* ── Smooth streaming cursor ── */
+/* ── Smooth streaming cursor and layout stabilization ── */
 
 @keyframes smooth-stream-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 
-.assistant-turn-fragment.smooth-cursor .prose-chat > :last-child::after {
+.assistant-turn-fragment.streaming .prose-chat {
+  text-wrap: wrap;
+}
+
+.assistant-turn-fragment.smooth-cursor .prose-chat > :last-child:not(ul):not(ol):not(blockquote):not(pre):not(table):not(.table-wrap)::after,
+.assistant-turn-fragment.smooth-cursor .prose-chat > :is(ul, ol):last-child li:last-child:not(:has(ul, ol)):not(:has(p))::after,
+.assistant-turn-fragment.smooth-cursor .prose-chat > :is(ul, ol):last-child li:last-child > p:last-child::after,
+.assistant-turn-fragment.smooth-cursor .prose-chat > blockquote:last-child > p:last-child::after,
+.assistant-turn-fragment.smooth-cursor .prose-chat > pre:last-child > code::after {
   content: "";
   display: inline-block;
   width: 2px;
@@ -3294,7 +3302,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-turn-fragment.smooth-cursor .prose-chat > :last-child::after {
+  .assistant-turn-fragment.smooth-cursor .prose-chat > :last-child:not(ul):not(ol):not(blockquote):not(pre):not(table):not(.table-wrap)::after,
+  .assistant-turn-fragment.smooth-cursor .prose-chat > :is(ul, ol):last-child li:last-child:not(:has(ul, ol)):not(:has(p))::after,
+  .assistant-turn-fragment.smooth-cursor .prose-chat > :is(ul, ol):last-child li:last-child > p:last-child::after,
+  .assistant-turn-fragment.smooth-cursor .prose-chat > blockquote:last-child > p:last-child::after,
+  .assistant-turn-fragment.smooth-cursor .prose-chat > pre:last-child > code::after {
     animation: none;
     opacity: 0.7;
   }

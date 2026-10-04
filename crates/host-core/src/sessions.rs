@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 use crate::transcripts::{self, CompactionRecord, MessageRecord, RevisionRecord};
 
 mod fork_files;
+mod model_system;
 mod usage;
 pub use usage::record_usage;
 
@@ -153,6 +154,11 @@ pub struct MessageAttachment {
     pub mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<i64>,
+    /// Bounded excerpt of a referenced conversation (`kind: "session"`), written
+    /// by Electron main when the prompt carried a `pi-desktop://session/<id>`
+    /// link. Travels with the user message so the model keeps reading it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,6 +243,9 @@ pub struct UiMessage {
     /// as an additive `hostedSearch` transcript block; no SQL migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosted_search: Option<Value>,
+    /// Internal model-context state, preserved outside visible message text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_system: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +325,9 @@ fn is_default_title(title: &str) -> bool {
 /// the search index row (None for tool rows, matching the FTS triggers).
 pub(crate) fn ui_to_record(message: &UiMessage) -> (MessageRecord, Option<String>) {
     let mut meta_obj = serde_json::Map::new();
+    if let Some(system) = &message.model_system {
+        meta_obj.insert("modelSystem".into(), system.clone());
+    }
     if let Some(command) = &message.command {
         meta_obj.insert("command".into(), json!(command));
     }
@@ -439,6 +451,9 @@ pub(crate) fn ui_to_record(message: &UiMessage) -> (MessageRecord, Option<String
                 if let Some(size) = attachment.size {
                     block.insert("size".into(), json!(size));
                 }
+                if let Some(text) = &attachment.text {
+                    block.insert("text".into(), json!(text));
+                }
                 blocks.push(Value::Object(block));
             }
         }
@@ -465,6 +480,7 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
         _ => Vec::new(),
     };
     let meta = record.meta.unwrap_or(Value::Null);
+    let model_system = meta.get("modelSystem").cloned();
     let command = meta
         .get("command")
         .and_then(Value::as_str)
@@ -575,6 +591,10 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
                 size: block.get("size").and_then(|v| v.as_i64()),
+                text: block
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
             })
         })
         .collect::<Vec<_>>();
@@ -634,6 +654,7 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
             nested_parent_tool_call_id,
             agent_name,
             hosted_search: hosted_search.clone(),
+            model_system: None,
         }
     } else {
         let content = blocks
@@ -678,6 +699,7 @@ pub(crate) fn record_to_ui(record: MessageRecord) -> UiMessage {
             nested_parent_tool_call_id,
             agent_name,
             hosted_search,
+            model_system,
         }
     }
 }
@@ -897,6 +919,19 @@ fn clone_records_for_fork(
                 .cloned()
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
             if let Some(meta) = record.meta.as_mut().and_then(Value::as_object_mut) {
+                if let Some(system) = meta.get_mut("modelSystem").and_then(Value::as_object_mut) {
+                    for key in ["beforeMessageId", "afterMessageId"] {
+                        if let Some(new_id) = system
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .and_then(|id| message_ids.get(id))
+                        {
+                            system.insert(key.into(), json!(new_id));
+                        } else {
+                            system.remove(key);
+                        }
+                    }
+                }
                 meta.remove("revisionRootId");
                 meta.remove("revisionCount");
                 meta.remove("activeRevision");
@@ -1903,6 +1938,7 @@ pub fn append_message(
     message: &UiMessage,
     turn_id: Option<&str>,
 ) -> Result<()> {
+    model_system::validate(message)?;
     let message = crate::session_collaboration::prepare_append(db, session_id, message, turn_id)?;
     let session_created = ensure_session_for_append(db, session_id)?;
     let (mut record, text) = ui_to_record(&message);
@@ -3958,6 +3994,7 @@ mod tests {
             nested_parent_tool_call_id: None,
             agent_name: None,
             hosted_search: None,
+            model_system: None,
             session_message: None,
         }
     }
@@ -4610,6 +4647,7 @@ mod tests {
             nested_parent_tool_call_id: None,
             agent_name: None,
             hosted_search: None,
+            model_system: None,
             session_message: None,
         };
         append_message(&db, &session.id, &tool, None).unwrap();
@@ -4785,6 +4823,7 @@ mod tests {
             reference: "attachments/abc123".into(),
             mime_type: Some("image/png".into()),
             size: Some(42),
+            text: None,
         }]);
 
         append_message(&db, &session.id, &user, None).unwrap();
@@ -5124,6 +5163,7 @@ mod tests {
             nested_parent_tool_call_id: None,
             agent_name: None,
             hosted_search: None,
+            model_system: None,
             session_message: None,
         };
         append_message(&db, &session.id, &assistant, None).unwrap();
@@ -5203,6 +5243,7 @@ mod tests {
             parent_tool_call_id: None,
             nested_parent_tool_call_id: None,
             agent_name: None,
+            model_system: None,
             hosted_search: Some(json!({
                 "status": "completed",
                 "rounds": [

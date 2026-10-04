@@ -818,12 +818,19 @@
   transform: translateY(0);
 }
 
+/* The `0fr` row closes only if the clip can shrink below its content, and
+   vertical padding on the animating box holds that row open — as the list's
+   10px bottom inset did, leaving a blank band under the collapsed header.
+   The clip layer carries the collapse; the inset stays inside it. */
+.todo-dock-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .todo-dock-list {
   display: grid;
-  min-height: 0;
   gap: 6px;
   padding: 0 10px 10px;
-  overflow: hidden;
 }
 
 .todo-dock-row {

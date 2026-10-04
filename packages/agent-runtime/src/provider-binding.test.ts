@@ -254,12 +254,9 @@ describe("Anthropic runtime endpoint", () => {
       .result();
 
     expect(result.stopReason).toBe("error");
-    expect(
-      Object.hasOwn(model.compat ?? {}, "supportsMidConvoSystemMessages"),
-    ).toBe(false);
-    expect(
-      Object.hasOwn(model.compat ?? {}, "supportsMidConvoToolChanges"),
-    ).toBe(false);
+    expect(model.compat).toMatchObject({
+      supportsMidConvoSystemMessages: false, supportsMidConvoToolChanges: false,
+    });
     expect(request?.headers.get("anthropic-beta") ?? "").not.toMatch(
       /mid-conversation-tool-changes|inline-tools/,
     );

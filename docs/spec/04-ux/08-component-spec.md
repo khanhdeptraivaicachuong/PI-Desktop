@@ -576,9 +576,10 @@ visually distinct from list content.
   in its overflow menu. Rename edits the local display name only; open folder
   reveals the project directory in the system file manager for the selected
   project row.
-- Conversation overflow: pin/unpin, archive/restore, Create branch, delete.
-  Create branch is disabled while that conversation is running; success
-  activates the independent child session and focuses the composer. When
+- Conversation overflow: pin/unpin, archive/restore, Create branch, Copy
+  conversation link, delete. Create branch is disabled while that conversation
+  is running; success activates the independent child session and focuses the
+  composer. Copy conversation link is offered to every reader (§20B). When
   developer mode is on, the menu also offers Copy conversation ID (clipboard)
   and Open session path (the session scratch directory in the system file
   manager).
@@ -726,7 +727,7 @@ controls.
 | Project reorder | press-and-move on the title (8px), or ArrowUp/ArrowDown on that title, writes contiguous normalized-path order to sidebar preferences; accent insertion line; no visible grip |
 | Project archive | omitted from default view; restorable from archived view |
 | Project close | removes retained tab only; durable project/sessions remain |
-| Project delete | row-menu danger action behind a second confirmation that names the project and the number of its sessions; refused with a message while any of those sessions is running; removes the durable project row, those sessions, their transcripts, and its project memory; never deletes the folder on disk; a path owned by a multi-folder project group is refused with a message, and a path the host no longer knows is still removed from the list |
+| Project delete | row-menu danger action behind a second confirmation that names the project and the number of its sessions; refused with a message while any of those sessions is running and leaves group membership unchanged; removes the durable project row, those sessions, their transcripts, and its project memory; never deletes the folder on disk; deleting a root of a multi-folder project group detaches it as part of deletion, promotes the first remaining root when the primary is deleted, and removes the group record when its last root is deleted. A path the host no longer knows is still removed from the list. Detaching a root with chats through Edit project preserves them under a standalone project |
 | Project memory | row-menu editor reads and saves a compact list of titled or untitled memory cards for the exact project path; cards can be added, edited, and removed, the context is available in later chats, and it is never a higher-priority instruction |
 | Session list | exact-path matches only; no basename grouping |
 | Active group | exactly one group reflects the selected host workspace |
@@ -1424,6 +1425,10 @@ near-zero duration. A folded group keeps its rows mounted, `aria-hidden`, and
   session path opens `<data_dir>/scratch/<sessionId>/` in the system file
   manager, creating the directory if it does not exist yet. Both actions
   appear only while developer mode is on.
+- Copy conversation link writes the `pi-desktop://session/<id>` reference to
+  the clipboard without developer mode. Pasting it into another conversation's
+  Composer draft sends a bounded excerpt of that conversation with the turn,
+  and the user message then shows it as a chip (§20B).
 - Selecting a conversation with a different project first activates that
   project's workspace. A running turn in the previously selected session is
   not aborted.
@@ -1532,6 +1537,10 @@ storage but compose into one assistant turn until the next user message.
   content's left rule is itself a pointer and keyboard-focusable collapse
   control.
 - Hover code block: copy button appears
+- Click a transcript file reference with `:line[:column]`: resolve the file
+  first, then open it in the host `file:` tab and scroll the requested line into
+  view. Plain project-file references still prefer the bundled file view, whose
+  open contract does not carry a line position.
 - Hover or focus a minimap marker: show the localized sender and a bounded
   plaintext preview; multiple assistant fragments produced within one user
   turn are combined into one AI-response marker and preview; nearby markers
@@ -1728,8 +1737,12 @@ Single message render — either user (plaintext) or assistant (markdown streami
   chips matching the composer node (icon + ellipsized name; canonical path in
   the tooltip and accessible name). Image attachments that are not already
   inlined as `@path` chips render as bounded thumbnails (data URL from
-  `fs/readImageDataUrl`); unresolved loads keep the chip. Bare path tokens in
-  message text recognize Unicode letters and digits. In user-message prose,
+  `fs/readImageDataUrl`); unresolved loads keep the chip. A referenced
+  conversation (`kind: "session"`) renders as a chat-icon chip labeled with the
+  shared reference label and the referenced title; the tooltip and accessible
+  name come from the catalog, and activating it opens that conversation
+  (§20B). Bare path tokens in message text recognize Unicode letters and
+  digits. In user-message prose,
   these are candidates only: show a chip after the existing `fs/resolveRef`
   lookup confirms a real file. Pending, missing, or failed lookups preserve
   the exact original text, including `使用llama.cpp`. Explicit `@path` refs
@@ -2855,9 +2868,11 @@ reasoning-level control.
   closed when the active session changes, and shows at most eight ordered rows.
   The list stays mounted while collapsed so opening and closing can animate with
   a bounded height/opacity transition; collapsed content is `aria-hidden` and
-  reduced-motion users receive an immediate state change. Completed rows use a
-  success-tinted tile with a check icon, in-progress rows use the accent tint,
-  and cancelled rows are muted; each status symbol has a localized accessible
+  reduced-motion users receive an immediate state change. A collapsed dock
+  reserves only its header row: the list's inset is clipped, never laid out
+  below the header. Completed rows use a success-tinted tile with a check
+  icon, in-progress rows use the accent tint, and cancelled rows are muted;
+  each status symbol has a localized accessible
   name and each row renders plain text.
 - Renderer snapshots are keyed by session id. A `todos.changed` event with an
   older or equal revision is ignored. Session activation and host recovery
@@ -2910,9 +2925,10 @@ reasoning-level control.
   their source paths until the echo brings the session-scoped refs; a slash
   prompt shows its typed form until the echo brings the expanded body and
   command chip. A send that never reaches the host withdraws the row again.
-  Revalidation and older-page prepends are idempotent by message id, so leaving
-  and re-entering a session cannot display a second copy of an existing user
-  row.
+  Revalidation and older-page prepends are idempotent by message id. If the
+  renderer missed the persistence acknowledgement, re-entry may collapse only
+  an exact, attachment-free optimistic prompt with a nearby durable echo; an
+  older identical prompt cannot hide a newly sent row.
 - Shift+Enter: newline in textarea. Cmd/Ctrl+Enter sends when Enter-to-send is off. IME composition and an open autocomplete menu still take precedence over send.
 - Placeholder guidance: the initially rendered context starts on its welcome copy and remains
   unchanged while the page/session context, draft, focus, and IME state change.
@@ -3309,6 +3325,12 @@ Anatomy:
   main selects image blocks or path fallbacks from the exact model capability.
   Reference-only drafts are sendable. Builtin/plugin dispatch still bypasses
   the model-ready gate when no prompt text or file reference is sent.
+- A `pi-desktop://session/<id>` link in the draft is the reference itself: no
+  new trigger symbol joins `@` files and `/` commands, and the link stays
+  visible plaintext while the draft is unsent. Immediately before dispatch,
+  main resolves each link to another conversation in the same project into a
+  bounded excerpt attachment (§20B). An unknown id, a self-reference, and a
+  conversation in another project stay plaintext.
 - The Agent/Plan/Goal mode aliases can prefix a prompt in the same draft:
   `/agent-mode <prompt>`, `/plan-mode <prompt>`, and `/goal-mode <prompt>` apply
   the mode first, then send `<prompt>` plus any serialized references through
@@ -3398,6 +3420,8 @@ Anatomy:
   in the bundled `pi.file-manager` view (the host `file:` tab when that view is
   unavailable), a session-scratch or attachment file in the host `file:` tab,
   and a `.html`/`.htm` page of the primary folder in the side browser. A
+  positioned `path:line` reference uses the host read-only `file:` tab and
+  scrolls the requested line into view. A
   primary-folder file is addressed to the view as a project-relative path and a
   sibling-folder file as an absolute one, which is also how scratch and
   attachment files are addressed. A reference that matches no file opens nothing
@@ -4171,6 +4195,76 @@ TASKS (2)                     │ Nightly dependency check   [Enabled] [Run now]
   `prefers-reduced-motion`, including the running dot's pulse.
 
 
+## 20B. Conversation references
+
+### 20B.1 Purpose
+
+Carry another conversation into a turn without retyping it. The
+`pi-desktop://session/<id>` link is the whole interaction: a reader copies it
+from the conversation overflow menu and pastes it into a Composer draft (issue
+#1324, option B). Copy conversation ID stays the developer-mode identifier.
+
+### 20B.2 Anatomy
+
+```text
+Conversation overflow                    Composer draft (unsent)
+┌─────────────────────────────┐          ┌──────────────────────────────────┐
+│ Pin conversation            │          │ continue from                    │
+│ Create branch               │          │ pi-desktop://session/ab12cd34    │
+│ Copy conversation link      │          └──────────────────────────────────┘
+│ Delete conversation         │
+└─────────────────────────────┘          Sent user message
+                                         ┌──────────────────────────────────┐
+                                         │ continue from                    │
+                                         │ pi-desktop://session/ab12cd34    │
+                                         │ [💬 Conversation · Nightly check]│
+                                         └──────────────────────────────────┘
+```
+
+### 20B.3 States
+
+| State | Appearance |
+|---|---|
+| Reference attached | Chat-icon chip on the user message, named with the catalog's reference label and the referenced conversation's current title |
+| Reference skipped | Nothing is attached; the link stays plaintext in the message |
+| Another project | Skipped the same way: that transcript is not this turn's context |
+| Self-reference | Dropped before any read, so the conversation itself is never a reference |
+| Empty referenced conversation | The resolver attaches nothing and the message keeps the link |
+| Chip activated | The referenced conversation becomes the active session |
+
+### 20B.4 Interaction
+
+- Copy conversation link writes `pi-desktop://session/<sessionId>` from the
+  conversation overflow menu. The durable id is the reference; Copy
+  conversation ID still exposes the bare id in developer mode.
+- Sending a turn whose draft holds the link attaches a bounded excerpt of the
+  referenced conversation: the 40 newest messages, 8 KB per field, 16 KB for
+  the whole excerpt, newest last, and the count of earlier messages the bound
+  cut. At most four links per message are resolved.
+- The excerpt is stored on the message's attachment and quoted to the model as
+  one `<session_reference name="…" session="…">` block, so later turns read the
+  same reference and re-sending a message that still contains the link
+  re-resolves it from that conversation's current content.
+- Activating the chip opens the referenced conversation; the reference is a
+  link, not a copy of that transcript.
+- The chip names the conversation from its current title, so a rename — manual
+  or the first-turn summary — follows through to every message that references
+  it. The name recorded when the reference was made stays the fallback for a
+  conversation this viewer no longer lists, and is the name the quoted block
+  keeps for the model.
+- The visible text is never rewritten: the link a reader typed stays in the
+  message, and only the attached excerpt is additive.
+- Boundary: only conversations of the same project are read, the current
+  conversation is dropped before any read, and a link to another project, an
+  unknown id, or a `remote:` identifier stays plaintext rather than becoming a
+  reference. A paste cannot make the app read a transcript its reader could not
+  open.
+- The chip is a button with a catalog-built accessible name and a tooltip
+  naming the conversation it opens; it is keyboard-activatable and leaves the
+  surrounding selectable message text intact.
+- `pi-desktop://` is not yet an operating-system protocol handler; opening a
+  link from outside the app is a separate change (issue #1324, option A). This
+  section covers the in-app reference.
 ## 21. Acceptance criteria (all components)
 
 1. All components use semantic color tokens from [07-ui-design-system.md](07-ui-design-system.md) — no raw hex

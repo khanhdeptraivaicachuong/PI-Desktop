@@ -464,7 +464,7 @@ same vendor key.
 
 ### Anthropic token endpoint rate limits
 
-The pinned pi-ai 0.99.1 patch gives Anthropic authorization-code exchange and
+The pinned pi-ai 1.0.1 patch gives Anthropic authorization-code exchange and
 refresh a shared, bounded token-request policy: retry only an explicit HTTP
 429, at most three total requests. Wait at least 1 s then 2 s, or longer when
 `Retry-After` gives delta seconds or an HTTP date. A server delay beyond the
@@ -681,16 +681,11 @@ This is the **universal escape hatch** guaranteeing market coverage beyond nativ
 
 ### 16.1 Responses stream termination (pi-ai patch)
 
-The OpenAI Responses adapter must treat `response.completed` (and
-`response.incomplete`) as the end of the stream: after finalizing the
-response, it stops consuming the stream instead of awaiting the server's
-TCP FIN. Upstream pi-ai keeps iterating until the server closes the
-connection, which hangs the turn behind reverse proxies that hold the idle
-connection open. Until the fix ships upstream, `patches/` carries a pnpm
-patch on `@earendil-works/pi-ai@0.99.1` that breaks the event loop on the
-terminal event (the OpenAI SDK aborts the underlying request when the
-consumer stops iterating). Drop the patch once a pi-ai release includes the
-fix.
+The OpenAI Responses adapter treats `response.completed` and
+`response.incomplete` as the end of the stream, so a reverse proxy that keeps
+the TCP connection open cannot hold the turn after the final event. Pi-ai
+1.0.0 includes this upstream fix. The 1.0.0 hosted-search patch does not need to
+reapply the old 0.99.1 terminal-event hunk.
 
 ## 17. Multi-provider product rules
 

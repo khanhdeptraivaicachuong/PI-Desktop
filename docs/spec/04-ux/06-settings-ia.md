@@ -593,6 +593,9 @@ system while preserving their different data ownership:
   Move to Global. With no project selected the Move into <project> item is not
   offered and the project group asks for a project selection instead, so a
   capability is never sent to an unnamed project.
+- The MCP editor's optional connection timeout accepts 1–600 seconds. A blank
+  value clears the server override and restores the default; saving a changed
+  timeout refreshes that server's live connection.
 - Skeleton rows appear on first paint only. A later refresh keeps the rows it
   already has and dims the list instead, announcing the refresh to assistive
   technology, so toggling a switch never replaces the list with skeletons.
@@ -809,6 +812,10 @@ system while preserving their different data ownership:
   list under the status text (same notes as the ambient banner; D164). The
   full-history modal remains available when the app is up to date or update
   checks are disabled in development
+- Dismissing an update applies to that version across restarts. In-app
+  dismissal cancels an active download and prevents install-on-quit; discovery
+  continues, and a newer version clears the dismissal and resumes automatic
+  delivery.
 
 ## 3. Navigation rules
 

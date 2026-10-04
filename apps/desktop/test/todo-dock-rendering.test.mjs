@@ -52,6 +52,7 @@ test("TodoDock renders bounded session progress and cancelled state", async () =
     const html = render();
     assert.match(html, /aria-expanded="false"/);
     assert.match(html, /class="todo-dock-content" aria-hidden="true"/);
+    assert.match(html, /class="todo-dock-content" aria-hidden="true"><div class="todo-dock-clip">/);
     assert.match(html, /extra-0/);
     assert.match(html, /4 more items/);
     assert.match(html, /lucide-check/);

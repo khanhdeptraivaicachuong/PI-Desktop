@@ -56,12 +56,12 @@ export async function verifyComposerSubmission(imagePath: string, i18n: i18n) {
       await painted();
       host.querySelector<HTMLButtonElement>(".asktool-option")!.click();
       await painted();
-      host.querySelector<HTMLButtonElement>(".asktool-card-actions button:last-child")!.click();
+      host.querySelector<HTMLButtonElement>(".asktool-card-header-actions button:last-child")!.click();
       await painted();
       await painted();
-      const nextSubmit = host.querySelector<HTMLButtonElement>(".asktool-card-actions button:last-child");
+      const nextSubmit = host.querySelector<HTMLButtonElement>(".asktool-card-header-actions button:last-child");
       assert(nextSubmit && !nextSubmit.disabled, "next request must be answerable");
-      assert(host.querySelector(".asktool-question")?.textContent === "second question",
+      assert(host.querySelector(".asktool-question")?.textContent?.includes("second question"),
         "submitting the first request must display the next queued question");
       assert(!host.querySelector(".asktool-option.selected"), "next request must not inherit selected answers");
       host.querySelectorAll<HTMLButtonElement>(".asktool-option")[1].click();
@@ -79,13 +79,13 @@ export async function verifyComposerSubmission(imagePath: string, i18n: i18n) {
         "other-session": [{...asks[1],sessionId:"other-session"}],
       } }));
       await painted();
-      host.querySelector<HTMLButtonElement>(".asktool-card-actions button:last-child")!.click();
+      host.querySelector<HTMLButtonElement>(".asktool-card-header-actions button:last-child")!.click();
       await painted();
       flushSync(() => useAppStore.setState({ activeSessionId:"other-session" }));
       await painted();
       assert(errors.length === 0 && host.querySelector(".composer-input"),
         "switching from question 2 to another chat with one question must keep Composer mounted");
-      assert(host.querySelector(".asktool-question")?.textContent === "second question",
+      assert(host.querySelector(".asktool-question")?.textContent?.includes("second question"),
         "switching chats must display the destination question");
       assert(host.querySelectorAll(".asktool-indicator").length === 1,
         "destination request must not inherit the previous question count");

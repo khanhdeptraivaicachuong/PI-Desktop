@@ -64,15 +64,17 @@ export function TodoDock({ sessionId }: { sessionId: string }) {
         {expanded ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
       </Button>
       <div className="todo-dock-content" aria-hidden={!expanded}>
-        <div className="todo-dock-list" role="list">
-          {visible.map((todo, index) => (
-            <TodoRow key={`${index}:${todo.content}`} todo={todo} />
-          ))}
-          {remaining > 0 ? (
-            <div className="todo-dock-more" role="status">
-              {t("chat.todo.more", { count: remaining })}
-            </div>
-          ) : null}
+        <div className="todo-dock-clip">
+          <div className="todo-dock-list" role="list">
+            {visible.map((todo, index) => (
+              <TodoRow key={`${index}:${todo.content}`} todo={todo} />
+            ))}
+            {remaining > 0 ? (
+              <div className="todo-dock-more" role="status">
+                {t("chat.todo.more", { count: remaining })}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
