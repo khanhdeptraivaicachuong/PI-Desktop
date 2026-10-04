@@ -709,8 +709,10 @@ type Block =
       status: "ok" | "error" | "denied"; result?: unknown;
       completedAt?: string; durationMs?: number;
       toolUsage?: ToolTokenUsage }
-  | { type: "attachment"; kind: "image" | "file"; name: string;
-      ref: string /* attachments/<sha256> or absolute path */ }
+  | { type: "attachment"; kind: "image" | "file" | "session"; name: string;
+      ref: string /* attachments/<sha256>、绝对路径或会话 id */;
+      mimeType?: string; size?: number;
+      text?: string /* 被引用对话的有界摘录 */ }
   | { type: "hostedSearch"; status: "searching" | "completed" | "failed";
       rounds: Array<{ id: string;
         status: "searching" | "completed" | "failed";
@@ -724,6 +726,11 @@ type Block =
 
 - 工具结果存储**截断后**（16 个工具结果限制）；满
   原始输出不是存储问题。
+- `kind: "session"` 块是会话引用：它存储被引用的会话 id、显示标题，以及引用给模型的
+  有界摘录，因此后续轮次读到的是同一份引用，而不必重新读取被引用的对话。摘录边界、
+  同项目规则与 `<session_reference>` 提示块属于引用契约
+  （`04-ux/08-component-spec.md` §20B）；宿主只存它拿到的东西，不会为了拼出一条引用
+  去读被引用的会话。
 - 辅助思维仅存储在文件内的 `thinking` 块中。的
   派生的 `text` 列包含最终答案文本，因此转录搜索和
   答案预览不会暴露或混合推理。

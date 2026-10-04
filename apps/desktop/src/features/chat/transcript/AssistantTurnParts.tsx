@@ -19,7 +19,7 @@ const SmoothMessageBubble = memo(function SmoothMessageBubble({ message, streami
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const enabled = smoothStreaming && !prefersReducedMotion;
   const displayContent = useSmoothText(message.content || "", streaming, enabled);
-  const showCursor = streaming && enabled && (displayContent.length < (message.content || "").length);
+  const showCursor = streaming && enabled && Boolean(displayContent);
   return (
     <div
       className={`message-bubble assistant-turn-fragment${streaming ? " streaming" : ""}${showCursor ? " smooth-cursor" : ""}`}

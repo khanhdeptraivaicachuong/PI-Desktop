@@ -1840,6 +1840,35 @@ identify the platform validation still needed.
   `pnpm test:e2e:composer-paste`; real desktop recording uses isolated data and
   a local model with a controlled response delay.
 
+#### E2E-SESSION-reference-conversation-link: A pasted conversation link carries that conversation into the turn
+
+- **Preconditions**: Isolated desktop profile; one project with conversations A
+  and B, and a second project with conversation C; a configured model that
+  answers from the context it is given.
+- **Steps**: 1) In A's conversation overflow menu choose Copy conversation
+  link and read the clipboard. 2) Open B, paste the link into the Composer
+  draft, send it, and inspect the user message. 3) Ask a follow-up in B without
+  repeating the link. 4) Paste C's link into B and send. 5) In A, send A's own
+  link. 6) Rename A from its conversation overflow menu, then return to B.
+- **Expected**: The clipboard holds `pi-desktop://session/<A's id>`. B's user
+  message keeps the link text visible and shows a chat-icon chip labelled with
+  the catalog's reference label and A's title; activating the chip opens A. The
+  answer uses A's content, and the follow-up still reads the same reference
+  without the link being written again. C's link and A's own link attach
+  nothing: the message keeps its plaintext and the model receives no excerpt
+  from them, because the resolver drops a self-reference before any read and
+  discards an excerpt whose conversation belongs to another project.
+  Renaming A afterwards renames the chip in B, which names the conversation from
+  its current title; the excerpt the model already read keeps the name recorded
+  when the reference was made.
+- **Specs linked**: `04-ux/08-component-spec.md` §20B,
+  `03-runtime/04-data-storage.md`, `03-runtime/02-agent-runtime.md`
+- **Acceptance criterion**: C — Conversation & stream
+- **Milestone**: M2
+- **Status**: Draft — the resolver and the chip are covered at source level by
+  `apps/desktop/test/session-references.test.mjs` and
+  `apps/desktop/test/session-reference-ui.test.mjs`
+
 #### E2E-COMPOSER-input-history-recall
 
 - **Preconditions**: Isolated Electron test profile and the production Composer
@@ -2446,6 +2475,27 @@ identify the platform validation still needed.
   Accessibility, Localization
 - **Milestone**: M3
 - **Status**: Source-level regression covered; full UI scenario Draft
+
+#### E2E-012b: Delete a project root from a multi-folder group
+
+- **Preconditions**: A two-root project group has sessions in both roots; one
+  session in the root being deleted can be started and stopped.
+- **Steps**:
+  1. Start a turn in the primary root, then request deletion of that project
+     and confirm the action.
+  2. Confirm the running-session conflict and inspect the group and both
+     session lists.
+  3. Let the turn finish, delete the primary project, and confirm again.
+  4. Inspect the remaining group, its sessions, shared instructions and
+     memory, and both directories on disk.
+- **Expected**: A running session blocks deletion without changing group
+  membership or deleting data. After the session is idle, deletion removes the
+  selected root, its sessions and project memory, promotes the first remaining
+  root when needed, and preserves the remaining root's sessions and group-level
+  instructions and memory. The original folders remain on disk.
+- **Specs linked**: `03-runtime/06-host-rpc-protocol.md` (Projects),
+  `04-ux/08-component-spec.md` (§3.9)
+- **Status**: Draft
 
 #### E2E-013: Read-only tools work in project
 
@@ -3293,7 +3343,7 @@ identify the platform validation still needed.
 
 #### E2E-MCP-pi-client-owner-policy: Pi protocol under existing Desktop owners
 
-- **Preconditions**: Pi 1.0.0 with the pinned host-policy patch; offline stdio and
+- **Preconditions**: Pi 1.0.1 with the pinned host-policy patch; offline stdio and
   HTTP fixtures, no paid provider or user credentials.
 - **Steps**: Run `plugin-mcp.test.mjs`, `user-mcp.test.mjs`,
   `mcp-stdio-launch.test.mjs`, `mcp-call-registry.test.mjs`, `mcp-oauth.test.mjs`,
@@ -3780,7 +3830,7 @@ identify the platform validation still needed.
 
 - **Preconditions**: One retained logical project is visible in the sidebar and
   in Settings → Project archive; it has a primary folder and one additional
-  folder.
+  folder without chats.
 - **Steps**: 1) Open the project's overflow menu in the sidebar and choose
   Edit project. 2) Change the name, remove the additional folder, and add it
   again with the native folder picker. 3) Confirm the Primary row cannot be
@@ -3796,14 +3846,35 @@ identify the platform validation still needed.
   Primary folder as the first row, and updates the root count without removing
   another row. Saving persists one logical group with the adjusted roots; the
   name survives restart, while normalized paths, workspace identity, sessions,
-  and on-disk folders remain unchanged. A root with existing chats is rejected
-  instead of orphaning those chats.
+  and on-disk folders remain unchanged.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`,
   `04-ux/09-interaction-patterns.md`
 - **Acceptance**: D (workspace identity), F (local presentation persistence)
 - **Milestone**: M5
 - **Status**: Unit-covered (`project-edit.test.mjs`,
   `sidebar-preferences.test.mjs`); rendered scenario Draft
+
+#### E2E-048c: Detach a project folder with chats and delete it
+
+- **Preconditions**: One retained logical project has a primary folder and an
+  additional folder with at least one saved chat. All chats are idle.
+- **Steps**: 1) Open Edit project and remove the additional folder. 2) Save and
+  inspect the remaining group and the standalone project row for the detached
+  folder. 3) Open the detached project's chat and confirm its transcript is
+  intact. 4) Delete the detached project using its two-click delete action.
+  5) Inspect the remaining group, project list, chat list, and folder on disk.
+- **Expected**: Removing the folder from the group preserves its project row,
+  chats, and transcripts, and exposes it as a standalone project. Future chats
+  use the detached project's path-scoped context; shared instructions and
+  memory remain with the original group. The confirmed delete then removes that
+  project's sessions and transcripts while keeping its folder on disk; the
+  original group remains with its primary folder.
+- **Specs linked**: `03-runtime/04-data-storage.md`,
+  `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`, ADR 0249,
+  ADR 0251.
+- **Acceptance**: C (project and chat interaction), F (persistence), Quality.
+- **Milestone**: M5
+- **Status**: Host RPC integration-covered; full UI scenario Draft
 
 #### E2E-048A: Project session lists fold after the ten most recent rows
 
@@ -5942,6 +6013,9 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     jump-to-latest appears as soon as follow mode is released.
   - On send, the transcript re-pins, hides jump-to-latest, and jumps to the bottom so the new user message (and following stream) is visible.
   - Streaming continues to follow while pinned.
+  - Long Markdown responses with nested lists keep their list container line
+    boxes stable during streaming; the cursor follows the terminal inline text
+    without adding a blank line below a nested list.
   - Manual scroll mid-stream pauses follow and shows jump-to-latest again; clicking it resumes follow.
 - **Specs linked**: `04-ux/08-component-spec.md`, `04-ux/09-interaction-patterns.md`
 - **Acceptance**: C (chat stream), Quality / D151
@@ -6233,8 +6307,11 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
     before a checkpoint boundary drops that record specifically; records
     anchored on surviving messages are preserved/remapped.
   - The exact provider overflow removes only the failed assistant from model
-    context, retries once after compaction, and does not loop on a second
-    overflow.
+    context, keeps the visible assistant bubble in a running state while
+    compaction/retry is pending, retries once after compaction, and does not
+    loop on a second overflow. A recoverable first overflow emits no terminal
+    error message or `error` event; only a failed retry (or failed compaction)
+    closes the bubble with `CONTEXT_TOO_LARGE` / the actual terminal error.
   - If automatic summary generation fails, a durable retained-tail fallback
     checkpoint is appended, the run stays active, and one warning explains
     that older model context was reduced; the transcript row for that
@@ -6730,6 +6807,22 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Milestone**: M6
 - **Status**: Automated (passed 2026-08-04): `test:e2e:plan` plus host-core
   permission/policy and agent-runtime tool-composition tests
+
+#### E2E-PLAN-WORKSPACE: Missing workspace does not strand a contract turn
+
+- **Preconditions**: Isolated host, active global workspace, temporary session
+  without a persisted project workspace; repeat for Plan and Goal.
+- **Steps**: Enter the contract from Agent mode and submit. In the runtime,
+  submit from a workspace-less contract session, receive the tool error, deliver
+  a final explanation, and repeat on
+  the user's next "continue" turn. Use a bound project as the success control.
+- **Expected**: Entry succeeds and leaves the session in planning state.
+  Submission fails with `PLAN_WORKSPACE_REQUIRED` without an approval or
+  artifact. The runtime returns a non-terminating error with workspace binding
+  guidance and permits a final assistant response. No execution is authorized.
+  Bound-project submission still produces a pending immutable checkpoint.
+- **Status**: Automated by `scripts/e2e-plan.mjs` and the runtime Plan transition
+  tests with a scripted provider boundary.
 
 #### E2E-106: SubmitPlan rejects into editable planning and resubmits a new artifact
 
@@ -7570,7 +7663,9 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   5. Ask again in each project.
   6. In the already-open `~/personal/site` session — assembled while the server
      was global — ask the agent to call one of the server's tools by name.
-  7. Edit the server's `env` and save; ask in `~/work/api` again.
+  7. Edit the server's `env`, set a 45-second connection timeout, and save.
+     Reopen it to confirm the value persisted, then clear the timeout and save.
+     Ask in `~/work/api` again.
   8. Rename the server and re-scope it; ask once more.
   9. Point the server's command at a binary that does not exist, save, and open
      a new session.
@@ -7602,6 +7697,8 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   - The `env` edit drops the connection: the next assembly or call re-handshakes, and
      the tool's behaviour reflects the new value. The rename in step 8 does not
      reconnect anything.
+  - The editor restores a saved timeout when reopened. Clearing it removes the
+    override so the next connection uses the default handshake timeout.
   - The broken command records `failed` with a message, contributes no tools,
      and is not re-dialled on the following session assembly; pressing Test
      retries it.
@@ -7632,6 +7729,14 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - **Milestone**: M5
 - **Discovery regression (#1221):** Local HTTP authorization flow covers root and path issuers, ordered OAuth/OIDC fallbacks, challenge-scope precedence, all protected-resource scopes, and omitted scope when absent. It checks the real callback, PKCE token exchange and storage handoff using synthetic tokens; no external account is contacted.
 - **Status**: Unit-covered (`apps/desktop/test/mcp-oauth.test.mjs`, `apps/desktop/test/user-mcp.test.mjs`); local HTTP flow covered by `apps/desktop/test/mcp-oauth-discovery.test.mjs`; full UI journey Draft
+
+#### E2E-261: Clear a per-server MCP timeout override
+
+- **Preconditions**: Isolated Electron profile and a saved MCP server with a 45-second timeout override; no live server or provider.
+- **Steps**: Open the production MCP editor, enter an out-of-range value and confirm Save is disabled, then clear the timeout field and save.
+- **Expected**: An invalid timeout cannot be saved. Clearing an existing override is valid and serializes as `timeoutSeconds: null`, allowing host-core to remove the override and use the default.
+- **Acceptance**: `node scripts/e2e-mcp-timeout-clear.mjs` exercises the production editor and save serialization. `apps/desktop/test/mcp-editor-timeout.test.mjs` covers value conversion; host-core MCP tests cover null clearing and default behavior. No live MCP server is contacted.
+- **Milestone**: M6+
 
 #### E2E-SKILL-import-multiple-folders
 
@@ -8708,16 +8813,20 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   6. Click a project file path in the conversation. Confirm it opens in this
      view on that file — a chat click now prefers the file view over the host
      `file:` tab.
-  7. Disable the File Manager plugin. Confirm the view disappears from the menu
+  7. Click a conversation reference to `src/example.ts:42`. Confirm the host
+     `file:` tab opens at line 42 even though the File Manager plugin is enabled.
+  8. Disable the File Manager plugin. Confirm the view disappears from the menu
      and the panel, and that a clicked conversation file path falls back to the
      host `file:<path>` tab under Open resources.
-  8. Re-enable it, then restart the app. Confirm the enabled state and the tree
+  9. Re-enable it, then restart the app. Confirm the enabled state and the tree
      return, and that the registry did not gain a duplicate row.
 - **Expected**: A panel surface runs entirely on the public plugin contribution
   channel, is user-disableable, cannot be uninstalled, and survives restart. Its
   host-mediated actions obey the declared `fs.read` scope, and its own reads and
   writes stay inside the jail of the one project folder it is browsing
-  (ADR 0241, ADR 0263).
+  (ADR 0241, ADR 0263). Plain project-file links open in the bundled view; a
+  positioned `path:line` reference opens the host file tab and scrolls the
+  requested line even while the plugin view is available.
 - **Specs linked**: `07-plugins/03-plugin-api.md` §3,
   `07-plugins/13-plugin-permissions-matrix.md` §2,
   `04-ux/08-component-spec.md` §5, ADR 0104, ADR 0109, ADR 0111,
@@ -9190,6 +9299,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   advances revision, including clear, and emits one committed `todos.changed`
   snapshot. Invalid or unauthorized writes do not mutate or emit. TodoDock
   renders plain text, does not take focus, resets expansion on session changes,
+  keeps a collapsed dock to its header height,
   rejects stale events, and skips local recovery for `remote:` sessions because
   RACP v1 has no Todo snapshot operation.
 - **Specs**: `03-runtime/03-tools-and-permissions.md`,
@@ -9227,8 +9337,10 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | A / C / Quality — Sidebar material and settings return | E2E-LAYOUT-sidebar-settings |
 | C / Quality — Destination loading and focus | E2E-087b |
 | A / H / Quality — Renderer process crash recovery | E2E-RUNTIME-renderer-crash-recovery |
+| C / F / Quality — Project folder with chats detaches and deletes safely | E2E-048c |
 | B / F / Security — Provider copy | E2E-PROVIDER-copy-config-without-credentials |
 | B / F / Quality — Selected model order | E2E-MODEL-selected-order-persists |
+| E / F / Quality — MCP server timeout override | E2E-261 |
 | A — App startup | E2E-001, E2E-002, E2E-003, E2E-004, E2E-067, E2E-076, E2E-079, E2E-092, E2E-097, E2E-143, E2E-150, E2E-168, E2E-204 |
 | A / C / F / Quality — Tray session navigation | E2E-TRAY-bounded-session-navigation |
 | B — Model config | E2E-005, E2E-006, E2E-007, E2E-038, E2E-050, E2E-052, E2E-055, E2E-066, E2E-080, E2E-082, E2E-102c, E2E-102d, E2E-102e, E2E-151, E2E-154, E2E-163, E2E-166, E2E-172, E2E-174, E2E-197, E2E-005G, E2E-005J, E2E-199, E2E-201, E2E-202, E2E-203, E2E-205, E2E-206, E2E-209 |
@@ -9299,6 +9411,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | M6+ | E2E-121, E2E-122, E2E-148, E2E-150, E2E-151, E2E-154, E2E-155, E2E-158, E2E-159, E2E-160, E2E-161, E2E-162, E2E-163, E2E-166, E2E-168, E2E-173, E2E-174, E2E-176, E2E-179, E2E-196a, E2E-196b, E2E-196c, E2E-198, E2E-199, E2E-200, E2E-202, E2E-203, E2E-205, E2E-209, E2E-210, E2E-UPDATE-preference-and-once-only-reminder, E2E-212, E2E-213, E2E-214, E2E-215, E2E-216, E2E-217, E2E-218, E2E-259, E2E-219, E2E-257, E2E-SUBAGENT-settlement-updates-before-parent-poll, E2E-PLUGIN-fs-root-follows-the-calling-session, E2E-SUBAGENT-resume-a-settled-delegation |
 | M6+ (Session Orchestrator) | E2E-PLUGIN-session-orchestrator-real-workers |
 | M6+ (Selected model order) | E2E-MODEL-selected-order-persists |
+| M6+ (MCP server timeout override) | E2E-261 |
 | M6+ (Destination loading and focus) | E2E-087b |
 | M6+ (Session list responsiveness) | E2E-SESSION-list-refresh-keeps-desktop-responsive |
 | M6+ (Windows updater cache) | E2E-260 |
@@ -9309,6 +9422,7 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 | M6+ (project folder roots) | E2E-PLUGIN-file-view-switches-folder-per-project |
 | Post-MVP | E2E-022A, E2E-022B, E2E-022C, E2E-024I, E2E-024J, E2E-024K, E2E-024L, E2E-024M (plugin roadmap R2/R3/R6) |
 | Post-baseline local automation | E2E-220 |
+| Post-baseline local automation (MCP `pi_session_get` large compaction) | E2E-MCP-session-get-projects-large-compaction |
 | Post-MVP remote control | E2E-221, E2E-222, E2E-223, E2E-224, E2E-225, E2E-226, E2E-227, E2E-228, E2E-229, E2E-230, E2E-231, E2E-232 |
 | Trusted extensions (R7 v1) | E2E-DIALOG-long-text-boundaries, E2E-241, E2E-242, E2E-HOOKS-prompt-chain, E2E-HOOKS-cancel-and-dispose, E2E-TRUSTED-EXTENSION-custom-agent-stream-and-binding, E2E-243, E2E-244, E2E-245, E2E-PLUGIN-imported-pi-package-skills, E2E-PLUGIN-import-extension-installs-dependencies, E2E-PLUGIN-import-extension-reports-missing-dependency, E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list |
 | Trusted extensions (R7 v1 npm recovery) | E2E-PLUGIN-import-extension-recovers-missing-npm |
@@ -11906,7 +12020,9 @@ This test plan spec is accepted when:
 - **Preconditions**: A provider fixture can complete multiple sequential tasks,
   trigger inline automatic compaction at 90% of `hardLimit` (before the hard
   boundary), exercise an active-turn checkpoint during a tool loop, and restart
-  a session.
+  a session. The desktop transcript runner also replays a deterministic local
+  provider-overflow recovery through the production runtime event handler,
+  transcript store projection, and assistant-turn renderer.
 - **Steps**:
   1. Complete task A and task B in one session with distinct instructions and
      visible completion replies.
@@ -11922,6 +12038,9 @@ This test plan spec is accepted when:
      capture the first request and confirm preflight compaction runs before
      `continue()` while retaining the internal approved-plan instruction.
   6. Restart and reopen the session, then send another prompt.
+  7. In the isolated overflow fixture, pause compaction after the first provider
+     response exceeds the context window. Inspect the rendered assistant turn,
+     then let the retry complete.
 - **Expected**: Automatic session compaction starts at
    `floor(hardLimit * 0.9)` for prompt, approved-plan, and in-run turn
    preflights; the estimate includes serialized messages, the active system
@@ -11934,7 +12053,10 @@ This test plan spec is accepted when:
    checkpoint retains exactly the latest active user prompt, with no older
    user prompts or pre-boundary assistant/tool messages. Restart honors
    `retainedTailMode`, and legacy multi-user tails normalize to the latest user
-   message. If automatic summary generation fails at the hard boundary, the
+   message. During recoverable overflow compaction, the existing assistant
+   bubble stays streaming without an error card; a successful retry completes
+   that same bubble once. A failed retry surfaces its terminal error. If
+   automatic summary generation fails at the hard boundary, the
    fallback retains a bounded recent user tail. The visible transcript remains
    complete and checkpoint rows remain.
 - **Specs linked**: `03-runtime/02-agent-runtime.md`,
@@ -11943,7 +12065,8 @@ This test plan spec is accepted when:
 - **Acceptance**: C (chat/stream), F (persistence), Quality
 - **Milestone**: M5
 - **Status**: Unit-covered (`packages/agent-runtime/src/context-budget.test.ts`,
-  `runtime.test.ts`, `subagent-context.test.ts`); provider/UI journey Draft
+  `runtime.test.ts`, `subagent-context.test.ts`); isolated overflow recovery
+  fixture passed through `pnpm test:e2e:transcript`; broader provider/UI journey Draft
 
 #### E2E-165: A2A and Peer tools are withdrawn
 
@@ -12167,17 +12290,22 @@ are withdrawn with ADR 0165.
   back. 3) Confirm the newest user row (and any streaming tail) is at the
   bottom of the transcript and the session still shows as running. 4) Optional:
   Stop, switch away and back; the same newest rows remain in chronological
-  order.
+  order. 5) With an older identical prompt already durable, send that same
+  text again and immediately switch away and back before its persistence
+  acknowledgement is applied.
 - **Expected**: Revalidation does not append older live history after the
   bounded durable page. The mounted trailing window still shows the just-sent
   prompt and the live tail. The turn continues in the background across the
-  switch. Stop is not required to make the prompt visible again.
+  switch. The older same-text row remains distinct and cannot suppress the new
+  optimistic prompt; the durable echo replaces that prompt in place. Stop is
+  not required to make the prompt visible again.
 - **Specs linked**: `04-ux/08-component-spec.md` §1.6 / §3.5,
   `04-ux/09-interaction-patterns.md` (session isolation), ADR 0120, ADR 0137,
   `08-meta/decisions-log.md` (D261, D317)
 - **Acceptance**: C (conversation & stream), F (persistence), Quality
 - **Milestone**: M5
-- **Status**: Unit-covered (`session-transcript.test.mjs` D317 cases); full
+- **Status**: Unit-covered (`session-transcript.test.mjs` D317 and missed-ack
+  same-text cases); full
   desktop journey Draft (run only in a capable environment when this surface changes)
 
 #### E2E-183: Switching an idle session keeps a completed reply that is not on disk yet
@@ -13064,22 +13192,27 @@ are withdrawn with ADR 0165.
   Dismiss it, navigate away and back, repeat the check, then restart and check
   again. 4) Confirm the same version does not raise another notice, while the
   Settings row still shows it and opens Releases. 5) Select Automatic and
-  confirm the existing in-app download/install behavior resumes. 6) Launch the
-  portable ZIP profile and confirm Manual is the default; inspect the warning
-  before explicitly selecting Automatic.
+  surface an available version. Dismiss the in-app banner while downloading;
+  verify the transfer is cancelled and the update will not install on quit.
+  Restart, check the same version again, and verify it remains dismissed and
+  does not download. Then surface a newer version and verify automatic
+  downloading resumes. 6) Launch the portable ZIP profile and confirm Manual
+  is the default; inspect the warning before explicitly selecting Automatic.
 - **Expected**: The preference persists per installation. Manual performs
   discovery only and stores the last reminded version so repeated checks and
-  app restarts do not repeat the notice; the Info row remains actionable.
-  Automatic retains the existing installer behavior where supported. ZIP and
-  legacy portable builds default to Manual, and Automatic is an explicit,
-  warned opt-in that can replace the extracted copy with NSIS.
+  app restarts do not repeat the notice; the Info row remains actionable. A
+  dismissed version stays ignored across restarts in either mode. In-app
+  dismissal cancels an active transfer and prevents install-on-quit for that
+  version; a newer release clears the dismissal and resumes automatic delivery.
+  ZIP and legacy portable builds default to Manual, and Automatic is an
+  explicit, warned opt-in that can replace the extracted copy with NSIS.
 - **Specs linked**: `03-runtime/07-process-model.md`,
   `04-ux/09-interaction-patterns.md`, ADR 0022 / D628
 - **Acceptance**: Quality (settings interaction and release safety)
 - **Milestone**: M6+
 - **Status**: Setting selection/persistence covered by
-  `pnpm test:e2e:settings-scroll`; mode/reminder policy covered by
-  `update-preference.test.mjs`. Packaged Windows installer journey remains
+  `pnpm test:e2e:settings-scroll`; dismissal and download cancellation covered
+  by `updater-controller.test.mjs`. Packaged Windows installer journey remains
   runner validation.
 
 #### E2E-213: The first Composer model menu paint keeps configured aliases
@@ -13325,6 +13458,29 @@ are withdrawn with ADR 0165.
 - **Status**: MCP protocol/unit-covered by `apps/desktop/test/mcp-control.test.mjs`;
   full Electron journey documented and remains deferred by the no-local-E2E
   policy
+
+#### E2E-MCP-session-get-projects-large-compaction
+
+- **Preconditions**: Start PI-Desktop with `PI_DESKTOP_MCP_CONTROL=1`. A durable
+  session exists whose `session.compaction` record (`summary` / `retainedTail` /
+  `details.modifiedFiles`) alone serializes to more than the 512 KiB MCP result
+  limit.
+- **Steps**: 1) Read `mcp-control.json`, use its URL and bearer token, and
+  complete the MCP handshake. 2) Call `pi_session_get` for that session with any
+  `messageLimit` / `contentLimit` / `messageBefore`. 3) Inspect
+  `structuredContent`. 4) Repeat for a small session.
+- **Expected**: The answer is not the `{truncated: true, reason:
+  "MCP_RESULT_LIMIT", preview}` envelope; `session.messages` carries the
+  requested transcript page; `session.compaction` keeps `createdAt` and
+  `details.generation` while `summary`, `retainedTail`, and
+  `details.modifiedFiles` are absent. The small session's answer is unchanged.
+- **Specs linked**: `03-runtime/01-ipc-protocol.md` §13d
+- **Acceptance**: C (sessions), Quality
+- **Milestone**: M6+
+- **Status**: The local MCP server contract test in
+  `apps/desktop/test/mcp-control.test.mjs` exercises authenticated JSON-RPC
+  `tools/call` for both oversized and under-limit `pi_session_get` results. The
+  separate full Electron-to-Host journey remains release qualification.
 
 #### E2E-234: Workspace security denylist and ignore layers
 
@@ -15309,6 +15465,19 @@ plugin-form fixtures in an isolated temporary directory at runtime.
 - **Specs:** IPC native routing; runtime §12; storage §12; security §12.
 - **Status:** Documented; run after integration into main.
 
+### E2E-SESSION-native-pi-duplicate-id-collapses
+
+- **Preconditions:** An isolated Pi agent directory contains a valid native v3
+  session and a copied JSONL file under a nested directory with the same
+  `header.id`.
+- **Steps:** Start PI-Desktop with the fixture-only agent directory, refresh the
+  session list, open the listed native session, and search its transcript.
+- **Expected:** The list contains one row for that native id. Detail and search
+  resolve through the selected file; duplicate files remain byte-identical and
+  are not rewritten or deleted.
+- **Specs:** runtime §12; storage §12; ADR 0254.
+- **Status:** Source-regression covered; full Desktop journey Draft.
+
 
 ### E2E-SUBAGENT-ordered-model-fallback-preserves-work
 
@@ -16250,7 +16419,7 @@ renderer's durable transcript reads. No real model or provider is contacted.
 
 ## E2E-OAUTH-pi-installation-identity-and-standalone-load
 
-- **Preconditions**: Pi 1.0.0; temporary Host secrets and account fixtures;
+- **Preconditions**: Pi 1.0.1; temporary Host secrets and account fixtures;
   network/browser/callback I/O mocked; no user account or paid service.
 - **Steps**: Run `installation-identity.test.mjs`, `vendor-oauth-login.test.mjs`
   and `oauth-standalone-bundle.test.mjs` under `apps/desktop/test`.
@@ -16279,3 +16448,104 @@ renderer's durable transcript reads. No real model or provider is contacted.
 - Installed Electron, real account/paid API and cross-version rollback are
   separate release qualification. No MCP, Codemode or virtual-router migration
   is included. See `docs/project/pi-0991-adoption.md` for candidate evidence.
+
+### E2E-SYSTEM-TRANSCRIPT: Ordered model state survives restart and compaction
+
+- Fixture: isolated Host data directory, production AgentSidecar transport and
+  separate Node runtime/Pi process, local SSE provider; no real provider
+  credentials or user's Desktop process. The harness persists completed
+  messages; it does not exercise Electron's UI or persistence outbox.
+- Send a prompt, activate BrowserPreview through ToolSearch, and verify the next
+  request includes the schema. Confirm the baseline and delta are acknowledged
+  by Host and survive stopping/restarting both processes without duplicate rows.
+- Resume the session, update a skill catalog on the same runtime, and confirm the
+  next request uses the new catalog while keeping a second unchanged entry.
+  Runtime/adapter tests verify the native delta contains only the modified entry,
+  and fallback models receive the complete current catalog with removals applied.
+  Invoke Skill through the actual sidecar
+  bridge with a fixture body supplied by the embedding host. Compact, restart
+  the sidecar, and verify current skills and active tools survive without
+  replaying old tool results. Remove the final skill and verify its catalog and
+  executable schema disappear without recreating the runtime.
+- Automated: `node scripts/e2e-system-transcript.mjs` with
+  `PI_DESKTOP_HOST_BIN` pointing to the candidate Host binary. Requires built
+  shared/host-runtime/agent-runtime packages. Renderer projection tests ensure
+  model-state records stay hidden while ordinary system notices remain visible.
+- Adapter contract tests cover exact model/API/endpoint capability binding,
+  partial support, unverified relay fallback, removals/redefinitions and model
+  switching without canonical-history mutation. Real cache-hit improvement is
+  a separately authorized provider experiment, not an offline-test claim.
+
+- Flash regression: load the pinned Pi `deepseek-flash` model, serialize its
+  Desktop projection, and pass skill updates/removals through the real adapter.
+  The official binding preserves the earlier wire prefix; changed bindings
+  retain the folded fallback. Covered by `flash-transcript.test.ts`.
+- Authorized live Flash acceptance: use isolated development sessions with
+  short and long contexts. Alternate unchanged turns and single-skill updates,
+  confirm current Skill bodies execute, and compare actual outgoing prefixes
+  plus reported usage. After restart, verify no duplicate system updates and
+  same-model assistant reasoning remains separate from visible content. Adapter
+  regressions also cover legacy identities and genuine account/model changes. Cache
+  percentages are observations, not deterministic pass thresholds.
+
+### E2E-FIXED-TOOL-DECLARATIONS: Stable Flash schemas with independent activation
+
+- Fixture: production AgentSidecar and isolated Host, official Pi Flash binding,
+  and a child-process fetch boundary redirected to local HTTP/SSE. Credentials
+  are dummy values and synthetic tools have no external side effects.
+- Prompt, search Alpha, execute Alpha, search Beta and execute Beta. HTTP payload
+  tests assert identical ordered `tools` and unchanged prior message prefixes.
+  Directly calling a declared but inactive tool must fail before the Host.
+- Restart both processes, then compact and restart again: Alpha stays activated,
+  Beta remains inactive despite its declaration. Activate Beta, then remove it
+  from the catalog and verify it cannot execute. New schema/route epochs must
+  not restore old grants. Host rejection and Plan guards remain effective.
+- Runtime contracts additionally cover legacy migration, interrupted activation,
+  malformed metadata, temporary prompt replacement, deterministic catalog order,
+  the 128-tool boundary and insufficient-context fallback.
+- Automated: `node scripts/e2e-fixed-tool-declarations.mjs` with built
+  shared/host-runtime/agent-runtime and `PI_DESKTOP_HOST_BIN` set to the candidate
+  Host binary; `fixed-tool-runtime.test.ts` and `fixed-tool-declarations.test.ts`
+  cover HTTP payload and policy contracts. Electron UI/outbox is outside this
+  fixture's scope.
+- Separately authorized official Flash experiments compare several independent
+  on-demand/fixed sessions with the same synthetic catalog and call sequence.
+  Record cold requests, both activations, follow-up cache hits/misses and
+  cumulative input cost. Report the larger first request and possible short-chat
+  cost increase, alongside any longer-conversation benefit. Offline test success
+  alone is not evidence of provider cache behavior.
+
+- Overflow/system-update integration: recover a provider context overflow with
+  a system delta after the failed assistant message. Keep that delta, remove the
+  failed assistant before compaction, and reuse one visible assistant message
+  through successful recovery. Terminal failure and Stop retain their existing
+  closure behavior. Covered by the parameterized runtime overflow user-path test.
+
+
+#### E2E-262: Transcript path:line opens and scrolls the host file viewer
+
+- **Preconditions:** Isolated Electron/Chromium, an active workspace and session,
+  the bundled file-manager view available, and deterministic filesystem IPC
+  fixtures.
+- **Steps:** Render a real transcript `path:line:column` reference followed by
+  sentence punctuation; click its verified file chip and wait for the host file
+  viewer to load.
+- **Expected:** Despite the bundled file-manager view being available, the
+  positioned reference opens in the host's read-only file tab. The file request
+  retains its line and column, and the viewer scrolls the requested line into
+  the visible center area. The path and file contents remain the same as the
+  reference target.
+- **Specs:** `04-ux/08` §11.8; ADR 0262.
+- **Status:** `node scripts/e2e-file-ref-line-scroll.mjs` mounts production
+  `LinkifiedText` and `FilesTab` in isolated Electron with filesystem IPC
+  fixtures; no real project files or provider are used.
+
+### Imported-extension GUI executable discovery regression (#1173)
+
+Start dependency installation with a GUI-like PATH that cannot resolve Node/npm
+and a trusted fixture installation in `~/.local/bin`. Validation and both npm
+stages must use that installation, preserve the application PATH, and avoid shell
+startup probing. Explicit selections keep their bin directory first. Missing
+installations still return `npm-unavailable` and retain native picker recovery.
+The executable integration fixture uses real isolated child processes and checks
+registry-only installation and credential isolation.

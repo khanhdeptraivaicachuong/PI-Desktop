@@ -186,6 +186,7 @@ export const de = {
     batchDelete: "{{count}} Sitzungen löschen",
     batchDeleteConfirm: "{{count}} Sitzungen löschen?",
     "copyConversationId": "Gesprächs-ID kopieren",
+    "copySessionLink": "Link zur Unterhaltung kopieren",
     "openSessionPath": "Sitzungspfad öffnen",
     "timeGroupYesterday": "Gestern",
     "timeGroupThisWeek": "Vorherige 7 Tage",
@@ -321,6 +322,8 @@ export const de = {
     "conversationMenu": "Gesprächsaktionen",
     "selectMessageText": "Nachrichtentext auswählen",
     "copyConversation": "Gespräch kopieren",
+    "sessionReference": "Unterhaltung",
+    "sessionReferenceOpen": "Unterhaltung {{title}} öffnen",
     "selectConversationText": "Gesprächstext auswählen",
     "scrollToTop": "Nach oben scrollen",
     "speakerYou": "Du",
@@ -1674,7 +1677,7 @@ sklm: {
     "openActions": "Aktionen für {{name}} öffnen",
     "reorder": "Reihenfolge von {{name}} ändern",
     "editTitle": "Projekt bearbeiten",
-    "editDescription": "Projektname und Ordner aktualisieren.",
+    "editDescription": "Ein entfernter Ordner mit Chats wird zu einem eigenen Projekt; die Chats bleiben erhalten.",
     "editAction": "Änderungen speichern",
     "editSaving": "Speichern…",
     "editCancel": "Abbrechen",
@@ -2337,7 +2340,11 @@ sklm: {
       "errorCommandDots": "Der Befehl darf „..\" nicht enthalten.",
       "errorUrl": "Eine URL ist erforderlich.",
       "errorUrlShape": "Das ist keine gültige URL.",
-      "errorUrlScheme": "Verwenden Sie eine http- oder https-URL."
+      "errorUrlScheme": "Verwenden Sie eine http- oder https-URL.",
+      "timeout": "Verbindungs-Timeout",
+      "timeoutHint": "Timeout in Sekunden für Verbindung und Tool-Erkennung (Standard: 10s, max: 600s).",
+      "timeoutPlaceholder": "10",
+      "errorTimeoutRange": "Das Timeout muss zwischen 1 und 600 Sekunden liegen."
     },
     "skills": {
       "add": "Neue Fertigkeit",

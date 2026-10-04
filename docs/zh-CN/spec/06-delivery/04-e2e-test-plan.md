@@ -768,6 +768,29 @@ task-candidate E2E 从请求工作树运行，但使用主工作区已经准备�
 - **覆盖**：`scripts/e2e/composer-submission.tsx`，由
   `pnpm test:e2e:composer-paste` 执行；真实桌面录屏使用隔离数据，以及响应时间受控的本地模型。
 
+#### E2E-SESSION-reference-conversation-link：粘贴的会话链接把那段对话带进本轮
+
+- **先决条件**：隔离的桌面配置；一个项目内有会话 A 与 B，另一个项目内有会话 C；
+  已配置一个会依据给定上下文作答的模型。
+- **步骤**： 1) 在 A 的对话溢出菜单选「复制会话链接」，读取剪贴板。
+  2) 打开 B，把链接粘贴进输入框草稿并发送，检查用户消息。
+  3) 在 B 里追问一次，不再重复链接。 4) 把 C 的链接粘贴进 B 并发送。
+  5) 在 A 里发送 A 自己的链接。 6) 从 A 的对话溢出菜单给它改名，然后回到 B。
+- **预期**：剪贴板内容是 `pi-desktop://session/<A 的 id>`。B 的用户消息保留可见的链接
+  文本，并显示聊天图标芯片，标签为语言目录里的引用标签加 A 的标题；激活芯片会打开 A。
+  回答使用 A 的内容，追问仍然读到同一份引用，而无需再次写入链接。C 的链接与 A 自己的
+  链接什么都不附带：消息保持纯文本，模型收不到它们的任何摘录——解析器在任何读取之前
+  丢掉自引用，并丢弃属于其他项目的对话摘录。
+  事后给 A 改名，B 里的芯片会跟着改名——芯片按被引用对话的当前标题命名；模型已经读过的
+  摘录则保留引用产生时记录的名称。
+- **关联规范**：`04-ux/08-component-spec.md` §20B、`03-runtime/04-data-storage.md`、
+  `03-runtime/02-agent-runtime.md`
+- **验收标准**：C — 对话与流
+- **里程碑**：M2
+- **状态**：Draft — 解析器与芯片已由源码级测试覆盖：
+  `apps/desktop/test/session-references.test.mjs`、
+  `apps/desktop/test/session-reference-ui.test.mjs`
+
 ### 对话顶部栏
 
 #### E2E-087：对话顶部栏在聊天路径上呈现
@@ -2011,7 +2034,7 @@ hover/focus 不带移位标签，项目标题 hover/focus 路径显示
 #### E2E-048b：编辑逻辑项目名称和文件夹根目录
 
 - **前提**：一个逻辑项目同时出现在侧边栏和设置 → 项目存档中，包含一个
-  Primary 文件夹和一个附加文件夹。
+  Primary 文件夹和一个没有聊天的附加文件夹。
 - **步骤**：1) 打开侧边栏项目溢出菜单并选择“编辑项目”。2) 修改名称，移除
   附加文件夹，再通过原生文件夹选择器将其添加回来。3) 确认 Primary 行不能移除。
   4) 保存并检查侧边栏、项目存档中的根目录和当前工作区。5) 重启应用并再次检查项目组。
@@ -2022,14 +2045,23 @@ hover/focus 不带移位标签，项目标题 hover/focus 路径显示
 - **预期**：两个项目菜单都提供编辑项目；编辑器保持焦点、去除首尾空格并限制为
   80 个 Unicode 字符，Primary 文件夹始终是第一行，根目录数量更新且不会误删其他行。
   保存后仍是一个逻辑项目组，调整后的根目录会持久化；名称在重启后保留，规范化
-  路径、工作区身份、会话和磁盘文件夹均不改变。已有聊天的根目录会被拒绝移除，
-  不会产生孤立会话。
+  路径、工作区身份、会话和磁盘文件夹均不改变。
 - **链接规格**：`04-ux/01-ui-ia.md`、`04-ux/08-component-spec.md`、
   `04-ux/09-interaction-patterns.md`
 - **验收**：D（工作区身份）、F（本地演示持久性）
 - **里程碑**：M5
 - **状态**：单位覆盖（`project-edit.test.mjs`、
   `sidebar-preferences.test.mjs`）；完整的 UI 场景草稿
+
+#### E2E-048c：分离含聊天的项目文件夹并单独删除
+
+- **前提：** 一个保留的逻辑项目包含一个主文件夹和一个有至少一条已保存聊天的附加文件夹；所有聊天均处于空闲状态。
+- **步骤：** 1) 打开“编辑项目”并移除附加文件夹。2) 保存后检查剩余项目组及该文件夹对应的独立项目行。3) 打开独立项目中的聊天，确认对话记录完整。4) 使用两步删除操作删除该独立项目。5) 检查剩余项目组、项目列表、聊天列表及磁盘上的文件夹。
+- **预期：** 从项目组移除文件夹会保留其项目记录、聊天和对话记录，并将其作为独立项目显示。新聊天使用该项目的路径级上下文；共享说明和记忆仍属于原项目组。确认删除后会移除该项目的会话及对话记录，但保留磁盘上的文件夹；原项目组仍保留主文件夹。
+- **链接规格：** `03-runtime/04-data-storage.md`、`04-ux/08-component-spec.md`、`04-ux/09-interaction-patterns.md`、ADR 0249、ADR 0251。
+- **验收：** C（项目和聊天交互）、F（持久化）、品质。
+- **里程碑：** M5
+- **状态：** Host RPC 集成测试已覆盖；完整 UI 场景仍为草稿
 
 #### E2E-048A：项目会话在最近十行之后列出折叠
 
@@ -3654,8 +3686,9 @@ IPC 请求无法关闭。
     压缩行仍被绘制。检查点之前的 regenerate/fork 具体记录的边界被丢弃；
     以幸存消息为锚点的记录被保留／重新映射。
   - 确切的提供程序溢出仅从模型中删除失败的助手
-    上下文，压缩后重试一次，并且不会在第二次循环
-    溢出。
+    上下文；压缩／重试等待期间，界面保留同一个助手气泡并保持运行态；
+    压缩后只重试一次，第二次溢出不循环。第一次可恢复溢出不发终态错误消息或
+    `error` 事件；只有重试／压缩失败时才以 `CONTEXT_TOO_LARGE` 或真实终态错误收口。
   - 如果自动摘要生成失败，则持久保留尾部回退
     附加检查点，运行保持活动状态，并有一个警告解释
     旧模型上下文被减少；该检查点的转录行显示
@@ -4907,6 +4940,14 @@ eleven-tool-round desktop paths are verified by
 - **里程碑**：M5
 - **状态**：单元覆盖（`apps/desktop/test/mcp-oauth.test.mjs`、`apps/desktop/test/user-mcp.test.mjs`）；完整 UI 之旅草案
 
+#### E2E-261：清除单服务器 MCP 超时覆盖
+
+- **前提**：隔离 Electron 配置及一个超时覆盖为 45 秒的已保存 MCP 服务器；不连接真实服务器或提供商。
+- **步骤**：打开生产 MCP 编辑器，输入超出范围的值并确认保存按钮禁用，然后清空超时字段并保存。
+- **预期**：无效超时无法保存。清空已有覆盖是有效操作，并序列化为 `timeoutSeconds: null`，使 host-core 删除覆盖并使用默认值。
+- **验收**：`node scripts/e2e-mcp-timeout-clear.mjs` 使用生产编辑器验证表单和保存序列化。`apps/desktop/test/mcp-editor-timeout.test.mjs` 覆盖值转换；host-core MCP 测试覆盖 null 清除及默认行为。不连接真实 MCP 服务器。
+- **里程碑**：M6+
+
 #### E2E-101：用户技能编写一次并限定每个项目的范围
 
 - **先决条件**：磁盘上有两个项目。每个中都有一个 Agent 会话。
@@ -5494,7 +5535,7 @@ eleven-tool-round desktop paths are verified by
 
 - **前提：** 隔离的本地 Electron 配置、确定性的 Agent/Host fixture、两个 Desktop 会话，不使用真实 Provider 或付费 API。
 - **步骤：** 启动调用 `TodoWrite` 的多步骤 Agent 回合，观察 Composer 上方的 TodoDock，展开后切换会话并确认清单隔离。完成和取消条目，确认最多显示八条以及全部取消状态；清空清单后重载/重启 Host。发送乱序旧 `todos.changed` 事件，确认它不能覆盖新快照；再覆盖非法参数、Plan/Goal、委托和远程会话路径。
-- **预期：** Host SQLite 是权威状态；每次成功全量替换（包括清空）都会推进 revision 并只发出一次已提交的 `todos.changed`。非法或未授权写入既不修改也不发事件。TodoDock 渲染纯文本、不抢焦点、切换会话时收起、拒绝旧事件，并对 `remote:` 会话跳过本地恢复，因为 RACP v1 没有 Todo 快照操作。
+切换会话时收起、收起状态只占标题行高度、拒绝旧事件
 - **链接规格：** `03-runtime/03-tools-and-permissions.md`、`03-runtime/04-data-storage.md`、`03-runtime/06-host-rpc-protocol.md`、`04-ux/08-component-spec.md`、ADR 0312。
 - **验收：** C / E / F / Quality / Security。
 - **里程碑：** M6+。
@@ -5516,22 +5557,24 @@ eleven-tool-round desktop paths are verified by
 | A / C / Quality — 侧栏材质与设置返回 | E2E-LAYOUT-sidebar-settings |
 | C / Quality — 目的页加载与焦点 | E2E-087b |
 | A / H / Quality — 渲染器进程崩溃恢复 | E2E-RUNTIME-renderer-crash-recovery |
+| C / F / Quality — 含聊天的项目文件夹安全分离并删除 | E2E-048c |
 | B / F / Security — 提供商复制 | E2E-PROVIDER-copy-config-without-credentials |
 | B / F / Quality — 已选模型顺序 | E2E-MODEL-selected-order-persists |
+| E / F / Quality — MCP 服务器超时覆盖 | E2E-261 |
 | A — 应用程序启动 | E2E-001、E2E-002、E2E-003、E2E-004、E2E-067、E2E-076、E2E-079、E2E-092、E2E-097、E2E-143、E2E-150、E2E-168、E2E-204、E2E-217 |
 | B——模型配置 | E2E-005、E2E-005G、E2E-006、E2E-007、E2E-038、E2E-050、E2E-052、E2E-055、E2E-066、E2E-080、E2E-082、E2E-151、E2E-005J、E2E-199、E2E-201、E2E-202、E2E-203、E2E-209、E2E-166 |
-| C — 对话和直播 | E2E-CHAT-running-status-survives-output-pauses、E2E-008、E2E-008d、E2E-008a、E2E-009、E2E-010、E2E-011、E2E-011a、E2E-011b、E2E-031、E2E-040、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-052、 E2E-053、E2E-054、E2E-055、E2E-059、E2E-059a、E2E-060c、E2E-060d、E2E-061、E2E-061a、E2E-062、E2E-064、E2E-065、E2E-068、E2E-071、 E2E-073、E2E-074、E2E-075、E2E-081、E2E-083、E2E-084、E2E-086、E2E-087、E2E-088、E2E-088b、E2E-089、E2E-090、E2E-094、E2E-095、E2E-096、 E2E-097、E2E-098、E2E-099、E2E-102、E2E-102a、E2E-102b、E2E-106、E2E-109、E2E-111、E2E-114、E2E-116、E2E-117、E2E-118、E2E-119、 E2E-120、E2E-121、E2E-代理-001、E2E-142、E2E-144、E2E-145、E2E-146、E2E-147、E2E-151、E2E-199、E2E-250、E2E-166、E2E-SUBAGENT-resume-a-settled-delegation |
+| C — 对话和直播 | E2E-CHAT-running-status-survives-output-pauses、E2E-008、E2E-008d、E2E-008a、E2E-009、E2E-010、E2E-011、E2E-011a、E2E-011b、E2E-031、E2E-040、E2E-047、E2E-048、E2E-048c、E2E-048A、E2E-049、E2E-052、 E2E-053、E2E-054、E2E-055、E2E-059、E2E-059a、E2E-060c、E2E-060d、E2E-061、E2E-061a、E2E-062、E2E-064、E2E-065、E2E-068、E2E-071、 E2E-073、E2E-074、E2E-075、E2E-081、E2E-083、E2E-084、E2E-086、E2E-087、E2E-088、E2E-088b、E2E-089、E2E-090、E2E-094、E2E-095、E2E-096、 E2E-097、E2E-098、E2E-099、E2E-102、E2E-102a、E2E-102b、E2E-106、E2E-109、E2E-111、E2E-114、E2E-116、E2E-117、E2E-118、E2E-119、 E2E-120、E2E-121、E2E-代理-001、E2E-142、E2E-144、E2E-145、E2E-146、E2E-147、E2E-151、E2E-199、E2E-250、E2E-166、E2E-SUBAGENT-resume-a-settled-delegation |
 | C — 对话和直播（输入框草稿） | E2E-011c、E2E-011c-1 |
 | A / C / F / Quality — Tray session navigation | E2E-TRAY-bounded-session-navigation |
 | D——工作区 | E2E-012、E2E-013、E2E-022B、E2E-024I、E2E-047、E2E-049、E2E-057、E2E-058、E2E-060、E2E-068、E2E-075、E2E-078、E2E-153 |
 | D——工作区（项目排序） | E2E-253 |
 | E——工具和权限 | E2E-008a、E2E-014、E2E-015、E2E-016、E2E-017、E2E-018、E2E-019、E2E-024I、E2E-024K、E2E-040、E2E-049、E2E-074、E2E-093、E2E-097、 E2E-099、E2E-100、E2E-101、E2E-102、E2E-103、E2E-105、E2E-106、E2E-107、E2E-111、E2E-112、E2E-113、E2E-114、E2E-115、E2E-116、 E2E-119、E2E-121、E2E-122、E2E-123、E2E-142、E2E-145、E2E-147、E2E-PLUGIN-imported-pi-package-skills、E2E-166 |
-| F——坚持 | E2E-020、E2E-021、E2E-036、E2E-037、E2E-038、E2E-040、E2E-042、E2E-047、E2E-048、E2E-051、E2E-054、E2E-056、E2E-061、E2E-062、 E2E-064、E2E-066、E2E-068、E2E-071、E2E-072、E2E-073、E2E-082、E2E-084、E2E-096、E2E-098、E2E-102、E2E-102b、E2E-103、E2E-代理-001、 E2E-061a、E2E-073a、E2E-104、E2E-106、E2E-107、E2E-108、E2E-109、E2E-110、E2E-112、E2E-118、E2E-119、E2E-120、E2E-121、E2E-123、E2E-142、E2E-146、E2E-148、E2E-151、E2E-171、E2E-005J |
+| F——坚持 | E2E-020、E2E-021、E2E-036、E2E-037、E2E-038、E2E-040、E2E-042、E2E-047、E2E-048、E2E-048c、E2E-051、E2E-054、E2E-056、E2E-061、E2E-062、 E2E-064、E2E-066、E2E-068、E2E-071、E2E-072、E2E-073、E2E-082、E2E-084、E2E-096、E2E-098、E2E-102、E2E-102b、E2E-103、E2E-代理-001、 E2E-061a、E2E-073a、E2E-104、E2E-106、E2E-107、E2E-108、E2E-109、E2E-110、E2E-112、E2E-118、E2E-119、E2E-120、E2E-121、E2E-123、E2E-142、E2E-146、E2E-148、E2E-151、E2E-171、E2E-005J |
 | F——持久化（项目排序） | E2E-253 |
 | G——插件 | E2E-022、E2E-022A、E2E-022B、E2E-022C、E2E-023、E2E-024、E2E-024B、E2E-024C、E2E-024D、E2E-024AA、E2E-024E、E2E-024W、E2E-024F、E2E-024G、E2E-024H、 E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M、E2E-024N、E2E-024O、E2E-024P、E2E-025、E2E-026、E2E-105、E2E-117、E2E-120、E2E-122、E2E-123、E2E-148、E2E-153、E2E-PLUGIN-imported-pi-package-skills、E2E-PLUGIN-imported-pi-package-wrapper、E2E-PLUGIN-import-extension-installs-dependencies、E2E-PLUGIN-import-extension-reports-missing-dependency、E2E-PLUGIN-global-shortcut-owns-only-its-own-command、E2E-PLUGIN-permission-gate-for-real-time-capabilities、E2E-PLUGIN-background-audio-and-realtime-connection |
 | H——诊断 | E2E-027、E2E-031、E2E-034、E2E-042、E2E-096、E2E-098、E2E-104、E2E-107、E2E-108、E2E-109、E2E-110、E2E-113、E2E-115、E2E-116、 E2E-118、E2E-121、E2E-146、E2E-194、E2E-195 |
 | 安全性 | E2E-028、E2E-029、E2E-030、E2E-024J、E2E-024K、E2E-024M、E2E-049、E2E-068、E2E-086、E2E-105、E2E-106、E2E-107、E2E-108、E2E-109、 E2E-110、E2E-112、E2E-113、E2E-115、E2E-116、E2E-117、E2E-119、E2E-121、E2E-122、E2E-123、E2E-142、E2E-148、E2E-151、E2E-153 |
-| 品质 | E2E-CHAT-running-status-survives-output-pauses、E2E-032、E2E-033、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-050、E2E-053、E2E-055、 E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、 E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、 E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-094、E2E-095、E2E-096、E2E-097、E2E-098、E2E-099、E2E-100、E2E-101、E2E-102、 E2E-102a、E2E-102b、E2E-103、E2E-AGENTS-001、E2E-024N、E2E-024O、E2E-059a、E2E-060b、E2E-060c、E2E-060d、E2E-061a、E2E-073a、E2E-111、 E2E-114、E2E-117、E2E-118、E2E-119、E2E-120、E2E-122、E2E-123、E2E-142、E2E-143、E2E-144、E2E-145、E2E-146、E2E-147、E2E-148、E2E-150、E2E-151、E2E-153、E2E-194、E2E-195、E2E-199、E2E-200、E2E-201、E2E-202、E2E-203、E2E-204、E2E-209、E2E-210、E2E-UPDATE-preference-and-once-only-reminder、E2E-250、E2E-PLUGIN-imported-pi-package-skills、E2E-SUBAGENT-resume-a-settled-delegation |
+| 品质 | E2E-CHAT-running-status-survives-output-pauses、E2E-032、E2E-033、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048c、E2E-048A、E2E-049、E2E-050、E2E-053、E2E-055、 E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、 E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、 E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-094、E2E-095、E2E-096、E2E-097、E2E-098、E2E-099、E2E-100、E2E-101、E2E-102、 E2E-102a、E2E-102b、E2E-103、E2E-AGENTS-001、E2E-024N、E2E-024O、E2E-059a、E2E-060b、E2E-060c、E2E-060d、E2E-061a、E2E-073a、E2E-111、 E2E-114、E2E-117、E2E-118、E2E-119、E2E-120、E2E-122、E2E-123、E2E-142、E2E-143、E2E-144、E2E-145、E2E-146、E2E-147、E2E-148、E2E-150、E2E-151、E2E-153、E2E-194、E2E-195、E2E-199、E2E-200、E2E-201、E2E-202、E2E-203、E2E-204、E2E-209、E2E-210、E2E-UPDATE-preference-and-once-only-reminder、E2E-250、E2E-PLUGIN-imported-pi-package-skills、E2E-SUBAGENT-resume-a-settled-delegation |
 | 品质（项目排序） | E2E-253 |
 | C — 对话和直播（输入法斜杠别名） | E2E-255 |
 | E——工具和权限（Skill 常驻） | E2E-254 |
@@ -5580,7 +5623,7 @@ eleven-tool-round desktop paths are verified by
 | M2 | E2E-004、E2E-005、E2E-006、E2E-007、E2E-008、E2E-008d、E2E-009、E2E-010、E2E-011、E2E-011a、E2E-011b、E2E-020、E2E-021、E2E-027、E2E-031、 E2E-036、E2E-037、E2E-042、E2E-087、E2E-088、E2E-088b、E2E-089、E2E-090、E2E-144、E2E-005J、E2E-201 |
 | M3 | E2E-012、E2E-013、E2E-014、E2E-015、E2E-016、E2E-017、E2E-018、E2E-019、E2E-040 |
 | M4 | E2E-022、E2E-023、E2E-024、E2E-025、E2E-026、E2E-030、E2E-038 |
-| M5 | E2E-CHAT-running-status-survives-output-pauses、E2E-008a、E2E-032、E2E-033、E2E-034、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048A、E2E-049、E2E-050、 E2E-051、E2E-052、E2E-053、E2E-054、E2E-055、E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、 E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、 E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-096、E2E-097、E2E-098、E2E-099、 E2E-100、E2E-101、E2E-102、E2E-102a、E2E-102b、E2E-AGENTS-001、E2E-059a、E2E-060b、E2E-060c、E2E-061a、E2E-073a、E2E-094、E2E-095、E2E-143、E2E-145、E2E-146、E2E-147、E2E-194、E2E-195、E2E-204、E2E-250 |
+| M5 | E2E-CHAT-running-status-survives-output-pauses、E2E-008a、E2E-032、E2E-033、E2E-034、E2E-039、E2E-043、E2E-044、E2E-045、E2E-046、E2E-047、E2E-048、E2E-048c、E2E-048A、E2E-049、E2E-050、 E2E-051、E2E-052、E2E-053、E2E-054、E2E-055、E2E-056、E2E-057、E2E-058、E2E-059、E2E-060、E2E-061、E2E-062、E2E-063、E2E-064、 E2E-065、E2E-066、E2E-067、E2E-068、E2E-069、E2E-070、E2E-071、E2E-072、E2E-073、E2E-074、E2E-075、E2E-076、E2E-077、E2E-078、 E2E-079、E2E-080、E2E-081、E2E-082、E2E-083、E2E-084、E2E-085、E2E-086、E2E-092、E2E-093、E2E-096、E2E-097、E2E-098、E2E-099、 E2E-100、E2E-101、E2E-102、E2E-102a、E2E-102b、E2E-AGENTS-001、E2E-059a、E2E-060b、E2E-060c、E2E-061a、E2E-073a、E2E-094、E2E-095、E2E-143、E2E-145、E2E-146、E2E-147、E2E-194、E2E-195、E2E-204、E2E-250 |
 | M5（项目排序） | E2E-253 |
 | M2（输入法斜杠别名） | E2E-255 |
 | M5（Skill 常驻） | E2E-254 |
@@ -5588,6 +5631,7 @@ eleven-tool-round desktop paths are verified by
 | M6+ | E2E-121、E2E-122、E2E-123、E2E-142、E2E-148、E2E-150、E2E-151、E2E-168、E2E-199、E2E-200、E2E-202、E2E-203、E2E-209、E2E-211、E2E-UPDATE-preference-and-once-only-reminder、E2E-212、E2E-213、E2E-214、E2E-215、E2E-216、E2E-217、E2E-257、E2E-166、E2E-SUBAGENT-resume-a-settled-delegation |
 | M6+（Session Orchestrator） | E2E-PLUGIN-session-orchestrator-real-workers |
 | M6+（已选模型顺序） | E2E-MODEL-selected-order-persists |
+| M6+（MCP 服务器超时覆盖） | E2E-261 |
 | M6+（目的页加载与焦点） | E2E-087b |
 | M6+（会话列表响应性） | E2E-SESSION-list-refresh-keeps-desktop-responsive |
 | M6+（Windows 更新缓存） | E2E-260 |
@@ -5598,6 +5642,7 @@ eleven-tool-round desktop paths are verified by
 | M6+（项目文件夹根） | E2E-PLUGIN-file-view-switches-folder-per-project |
 | 后MVP | E2E-022A、E2E-022B、E2E-022C、E2E-024I、E2E-024J、E2E-024K、E2E-024L、E2E-024M（插件路线图 R2/R3/R6） |
 | 基线后本地自动化 | E2E-220 |
+| 基线后本地自动化（MCP `pi_session_get` 超大 compaction） | E2E-MCP-session-get-projects-large-compaction |
 | MVP 后远程控制 | E2E-221、E2E-222、E2E-223、E2E-224、E2E-225、E2E-226、E2E-227、E2E-228、E2E-229、E2E-230、E2E-231、E2E-232 |
 | 受信任扩展（R7 v1） | E2E-DIALOG-long-text-boundaries、E2E-241、E2E-242、E2E-HOOKS-cancel-and-dispose、E2E-243、E2E-244、E2E-245、E2E-PLUGIN-imported-pi-package-skills、E2E-PLUGIN-import-extension-installs-dependencies、E2E-PLUGIN-import-extension-reports-missing-dependency、E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list |
 | 受信任扩展（R7 v1 npm 恢复） | E2E-PLUGIN-import-extension-recovers-missing-npm |
@@ -7013,22 +7058,28 @@ eleven-tool-round desktop paths are verified by
 #### E2E-164：上下文压缩保留活动任务边界
 
 - **先决条件**：提供商夹具可以在一个会话中完成多个连续任务，在终止边界触发自动
-  检查点，在工具循环期间触发活动回合检查点，并且可以重启会话。
+  检查点，在工具循环期间触发活动回合检查点，并且可以重启会话。桌面 transcript
+  runner 还会将确定性的本地 provider 溢出恢复事件经过生产运行时事件处理、转录投影和
+  assistant-turn renderer 回放。
 - **步骤**：
   1. 在同一会话中完成任务 A 和任务 B，使用不同指令并产生可见的完成回复。
   2. 在已完成回合后触发检查点，然后发送任务 C，捕获下一次提供商请求的上下文。
   3. 在任务 D 仍有工具结果或 `toolUse` 待处理时触发压缩，捕获下一次请求。
   4. 重启并重新打开会话，然后再发送一条提示。
+  5. 在隔离的溢出夹具中，第一次 provider 响应超出上下文窗口后暂停压缩并检查渲染的助手回合，
+     然后让重试成功。
 - **预期**：已完成回合检查点的保留尾部为空；下一次请求包含其摘要和任务 C，不包含裸的
   A/B 提示。活动检查点只保留最新的活动用户提示，不包含更早的用户提示或边界前的
   助手／工具消息。重启遵守 `retainedTailMode`，没有该字段的旧多用户尾部归一化为
-  最新用户消息。可见转录本保持完整，检查点行仍然存在。
+  最新用户消息。可恢复溢出正在压缩时，原助手气泡保持运行态且不显示错误卡片；重试成功后
+  同一个气泡只完成一次。重试失败时显示终态错误。可见转录本保持完整，检查点行仍然存在。
 - **链接规格**：`03-runtime/02-agent-runtime.md`、`03-runtime/04-data-storage.md`、
   `03-runtime/16-tool-result-limits.md`、`08-meta/decisions-log.md`（D275）、ADR 0136
 - **验收**：C（聊天／流）、F（持久性）、质量
 - **里程碑**：M5
 - **状态**：已覆盖单元测试（`packages/agent-runtime/src/runtime.test.ts`、
-  `context-compaction.test.mjs`）；provider/UI 旅程草稿
+  `context-compaction.test.mjs`）；隔离溢出恢复夹具通过 `pnpm test:e2e:transcript`；更完整的
+  provider/UI 旅程仍为草稿
 
 #### E2E-172：回合进行中改思考档位不会塌缩未固定会话菜单
 
@@ -7591,6 +7642,25 @@ eleven-tool-round desktop paths are verified by
 - **里程碑**：M6+
 - **状态**：由 `apps/desktop/test/mcp-control.test.mjs` 覆盖 MCP 协议/单元；完整 Electron
   旅程已记录，仍按策略延后
+
+#### E2E-MCP-session-get-projects-large-compaction：超大 compaction 记录不再让 pi_session_get 整包截断
+
+- **前提条件**：使用 `PI_DESKTOP_MCP_CONTROL=1` 启动 PI-Desktop。存在一个持久会话，其
+  `session.compaction` 记录（`summary` / `retainedTail` / `details.modifiedFiles`）单独
+  序列化即超过 512 KiB 的 MCP 结果上限。
+- **步骤**：1）读取 `mcp-control.json`，用其 URL 和 bearer token 完成 MCP 握手。2）对该会话
+  调用 `pi_session_get`，`messageLimit` / `contentLimit` / `messageBefore` 取任意值。3）检查
+  `structuredContent`。4）对一个普通小会话重复。
+- **预期**：答复不是 `{truncated: true, reason: "MCP_RESULT_LIMIT", preview}` 信封；
+  `session.messages` 带回请求的转写页；`session.compaction` 保留 `createdAt` 与
+  `details.generation`，而 `summary`、`retainedTail`、`details.modifiedFiles` 不存在。
+  小会话的答复不变。
+- **链接规格**：`03-runtime/01-ipc-protocol.md` §13d
+- **验收**：C（会话）、质量
+- **里程碑**：M6+
+- **状态**：`apps/desktop/test/mcp-control.test.mjs` 中的本地 MCP Server 合约测试会运行带认证的
+  JSON-RPC `tools/call`，分别验证超限和未超限的 `pi_session_get` 答复。完整 Electron 到 Host
+  旅程仍属于发布验收。
 
 ## 受信任扩展场景（R7 v1）
 
@@ -9219,3 +9289,51 @@ the latest destination. These assertions measure work counts, not device FPS.
 - **验收：** 缓存路径、迁移和清理单测通过；Windows task-candidate 验证应覆盖更新源传输、安装器交接和文件系统行为，且不连接真实发布源。
 - **里程碑：** M6+
 - **状态：** 单测和源码契约覆盖（`update-cache.test.mjs`、`auto-update.test.mjs`）；仍需 Windows 安装器/E2E 验证。
+
+### E2E-FIXED-TOOL-DECLARATIONS: Stable Flash schemas with independent activation
+
+- Fixture: production AgentSidecar and isolated Host, official Pi Flash binding,
+  and a child-process fetch boundary redirected to local HTTP/SSE. Credentials
+  are dummy values and synthetic tools have no external side effects.
+- Prompt, search Alpha, execute Alpha, search Beta and execute Beta. HTTP payload
+  tests assert identical ordered `tools` and unchanged prior message prefixes.
+  Directly calling a declared but inactive tool must fail before the Host.
+- Restart both processes, then compact and restart again: Alpha stays activated,
+  Beta remains inactive despite its declaration. Activate Beta, then remove it
+  from the catalog and verify it cannot execute. New schema/route epochs must
+  not restore old grants. Host rejection and Plan guards remain effective.
+- Runtime contracts additionally cover legacy migration, interrupted activation,
+  malformed metadata, temporary prompt replacement, deterministic catalog order,
+  the 128-tool boundary and insufficient-context fallback.
+- Automated: `node scripts/e2e-fixed-tool-declarations.mjs` with built
+  shared/host-runtime/agent-runtime and `PI_DESKTOP_HOST_BIN` set to the candidate
+  Host binary; `fixed-tool-runtime.test.ts` and `fixed-tool-declarations.test.ts`
+  cover HTTP payload and policy contracts. Electron UI/outbox is outside this
+  fixture's scope.
+- Separately authorized official Flash experiments compare several independent
+  on-demand/fixed sessions with the same synthetic catalog and call sequence.
+  Record cold requests, both activations, follow-up cache hits/misses and
+  cumulative input cost. Report the larger first request and possible short-chat
+  cost increase, alongside any longer-conversation benefit. Offline test success
+  alone is not evidence of provider cache behavior.
+
+- Overflow/system-update integration: recover a provider context overflow with
+  a system delta after the failed assistant message. Keep that delta, remove the
+  failed assistant before compaction, and reuse one visible assistant message
+  through successful recovery. Terminal failure and Stop retain their existing
+  closure behavior. Covered by the parameterized runtime overflow user-path test.
+
+#### E2E-262：聊天 path:line 引用打开文件并滚动到目标行
+
+- **前提：** 隔离 Electron/Chromium、活动工作区和会话、可用的随应用打包文件管理器视图，以及确定性的文件系统 IPC fixture。
+- **步骤：** 渲染真实聊天中的 `path:line:column` 引用并在末尾加句末标点；点击已验证的文件芯片，等待宿主文件查看器加载。
+- **预期：** 即使文件管理器视图可用，带位置的引用仍打开宿主只读文件选项卡。文件请求保留行列号，查看器滚动到视口中间的目标行；打开路径和文件内容与引用目标一致。
+- **规格：** `04-ux/08` §11.8；ADR 0262。
+- **状态：** `node scripts/e2e-file-ref-line-scroll.mjs` 在隔离 Electron 中挂载生产 `LinkifiedText` 与 `FilesTab`，并通过文件系统 IPC fixture 提供文件内容；不访问真实项目文件或模型服务。
+
+### 导入扩展时发现 GUI 环境下的可执行文件回归（#1173）
+
+使用无法解析 Node/npm 的 GUI 风格 `PATH` 启动依赖安装，并在 `~/.local/bin` 准备可信 fixture 安装。
+校验和 npm 两个安装阶段都必须使用该安装，同时保留应用自身的 `PATH`，且不探测 shell 启动文件。
+显式选择的 npm 仍优先使用其所在目录。缺少安装时仍返回 `npm-unavailable` 并保留原生选择器恢复路径。
+可执行集成 fixture 使用真实隔离子进程，并检查仅注册表安装和凭据隔离。

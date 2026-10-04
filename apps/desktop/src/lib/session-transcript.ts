@@ -15,6 +15,9 @@ type OptimisticFileReference = {
   token?: string;
 };
 
+const OPTIMISTIC_USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_OPTIMISTIC_ECHO_DELAY_MS = 30_000;
+
 /**
  * The user row shown the moment a prompt is sent, before the host has
  * persisted or echoed it (D288). The host reuses `id`, so its echo replaces
@@ -202,9 +205,49 @@ export function mergeLiveSessionMessages(
   }
 
   const used = new Set<string>();
+  // An optimistic prompt whose reconcile event was missed survives with its
+  // temporary UUID id, so id-based merging can replay it next to the durable
+  // echo (#1308). Content alone is not identity: only collapse an attachment-
+  // free optimistic row when one same-text durable user row was persisted
+  // shortly after that optimistic row. This keeps an older identical prompt
+  // from hiding a newly submitted one.
+  const matchedDurableUserIds = new Set<string>();
+  const collapsedOptimisticIds = new Set<string>();
+  for (const optimistic of liveNormalized) {
+    if (
+      optimistic.role !== "user" ||
+      optimistic.status !== "complete" ||
+      !OPTIMISTIC_USER_ID.test(optimistic.id) ||
+      durableIds.has(optimistic.id) ||
+      optimistic.attachments?.length
+    ) continue;
+    const optimisticTime = Date.parse(optimistic.createdAt ?? "");
+    if (!Number.isFinite(optimisticTime)) continue;
+    const candidates = durable
+      .filter((message) =>
+        message.role === "user" &&
+        !message.attachments?.length &&
+        !matchedDurableUserIds.has(message.id) &&
+        message.content === optimistic.content,
+      )
+      .map((message) => ({
+        message,
+        delay: Date.parse(message.createdAt ?? "") - optimisticTime,
+      }))
+      .filter(({ delay }) => delay >= 0 && delay <= MAX_OPTIMISTIC_ECHO_DELAY_MS)
+      .sort((left, right) => left.delay - right.delay);
+    if (!candidates.length) continue;
+    if (candidates.length > 1 && candidates[0].delay === candidates[1].delay) continue;
+    matchedDurableUserIds.add(candidates[0].message.id);
+    collapsedOptimisticIds.add(optimistic.id);
+  }
   const merged: UiMessage[] = [];
   const push = (message: UiMessage) => {
     if (used.has(message.id)) return;
+    if (collapsedOptimisticIds.has(message.id)) {
+      used.add(message.id);
+      return;
+    }
     used.add(message.id);
     merged.push(message);
   };
@@ -246,7 +289,8 @@ export function mergeLiveSessionMessages(
   }
 
   for (const message of liveNormalized) {
-    if (!used.has(message.id)) push(message);
+    if (used.has(message.id)) continue;
+    push(message);
   }
 
   const unchanged =

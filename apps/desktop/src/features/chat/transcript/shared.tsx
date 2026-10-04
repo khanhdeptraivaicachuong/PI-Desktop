@@ -38,6 +38,7 @@ import {
   IconAudio,
   IconBot,
   IconBranch,
+  IconChat,
   IconCheck,
   IconChevronRight,
   IconCircleAlert,
@@ -422,13 +423,22 @@ export function FileRefChip({
   kind,
   mimeType,
   onOpen,
+  line,
+  column,
   ...position
 }: {
   name: string;
   path: string;
   kind?: "image" | "file";
   mimeType?: string;
-  onOpen: (path: string, baseDir?: string, mimeType?: string) => void;
+  onOpen: (
+    path: string,
+    baseDir?: string,
+    mimeType?: string,
+    position?: { line?: number; column?: number },
+  ) => void;
+  line?: number;
+  column?: number;
 } & SourcePositionProps) {
   const { t } = useTranslation();
   const Icon = fileChipIcon(name, kind);
@@ -442,7 +452,7 @@ export function FileRefChip({
         {...position}
         title={`${html ? t("chat.previewUrl") : t("chat.openFile")} — ${path}`}
         aria-label={`${name} — ${path}`}
-        onClick={() => onOpen(path, undefined, mimeType)}
+        onClick={() => onOpen(path, undefined, mimeType, { line, column })}
         onContextMenu={(event) => openFileMenu(event, { path })}
       >
         <span className="composer-chip-icon" aria-hidden>
@@ -452,6 +462,42 @@ export function FileRefChip({
       </button>
       <ContextMenu state={fileMenu} onClose={closeFileMenu} />
     </>
+  );
+}
+
+/**
+ * A referenced conversation on a user message (issue #1324). The draft carried
+ * a `pi-desktop://session/<id>` link; main attached a bounded excerpt for the
+ * model and this chip is how the reader sees and reopens it.
+ */
+export function SessionRefChip({ attachment }: { attachment: MessageAttachment }) {
+  const { t } = useTranslation();
+  const selectSession = useAppStore((state) => state.selectSession);
+  // The chip names a conversation, not the name that conversation carried when
+  // the link was pasted: a rename — manual, or the first-turn summary — follows
+  // through to every message that references it. The recorded name is what the
+  // model block quotes, and it stays the fallback for a conversation this
+  // viewer no longer lists.
+  const liveTitle = useAppStore(
+    (state) => state.sessions.find((session) => session.id === attachment.ref)?.title,
+  );
+  const name = (liveTitle ?? "").trim() || attachment.name;
+  const label = `${t("chat.sessionReference")} · ${name}`;
+  return (
+    <button
+      type="button"
+      className="composer-chip chat-file-chip"
+      data-action="open-session-reference"
+      data-session-id={attachment.ref}
+      title={t("chat.sessionReferenceOpen", { title: name })}
+      aria-label={label}
+      onClick={() => void selectSession(attachment.ref).catch(() => undefined)}
+    >
+      <span className="composer-chip-icon" aria-hidden>
+        <IconChat size={13} />
+      </span>
+      <span className="composer-chip-name">{label}</span>
+    </button>
   );
 }
 
@@ -519,6 +565,8 @@ export function LinkifiedText({ text, attachments }: { text: string; attachments
             key={index}
             name={segment.label}
             path={segment.target.path}
+            line={segment.target.line}
+            column={segment.target.column}
             onOpen={openFileRef}
             {...position}
           />

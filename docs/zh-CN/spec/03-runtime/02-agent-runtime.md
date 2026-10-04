@@ -96,6 +96,9 @@ pi 消费排队输入时保留渲染器提供的消息 id；即使补充输入�
 6. 在 Electron main 的会话绑定路径边界上校验结构化附件，按 SHA-256 持久化
    图片字节，持久用户消息中只保留附件引用。只有处于视觉模型 10 MB 内联上限
    之内的图片才会被读进内存；更大的图片走流式哈希/复制以及既有的安全路径回退
+   草稿里的 `pi-desktop://session/<id>` 链接在同一步骤里解析成有界摘录附件：只限
+   同一项目，当前对话在任何读取之前就被跳过；运行时随后把它作为一个
+   `<session_reference name="…" session="…">` 块排在用户自己的话之前引用给模型
 7. 为本回合快照有效的 shell ID 与方言
 8. 用解析出的会话配置和有效思考级别启动 pi 回合；HTTP 429 的建连与流式失败
    使用运行时自有的静默 10 次重试预算，其他瞬时的 transport/provider 失败则在
@@ -978,15 +981,21 @@ sidecar 最多激活四个匹配项，并将名称写入 canonical
 模式。具有本机延迟工具搜索的提供商可在该负载点接收定义；其他
 提供商通常会收到活动定义。
 
-每个新用户提示前都会清除延迟激活集，再从有效上下文重建。成功的
-`ToolSearch` 结果读取 canonical `details.addedToolNames`；为兼容历史
-数据，也接受 `details.activated` 和顶层 `addedToolNames`。成功的延迟
-工具结果会贡献其工具名。仅恢复当前模式延迟目录中仍存在的名称；失败、
-中断、缺少结果的占位行以及助手/用户文本不会激活工具。工具注册表、主机
-权限路径、工具超时和工作区包含规则保持不变。`ToolSearch` 是 sidecar 的
-本地工具，不跨越主机 RPC 边界。激活标记保留在持久化工具结果中，因此
-只要证据仍在有效上下文，运行时重启或新提示都可以复用能力；证据被压缩
-或消失后仍需重新搜索。
+Deferred activation remains sticky within a live runtime. Restoration uses
+successful activation evidence and the current catalog; old declarations do not
+re-grant tools revoked from the live activation set. For official bound Flash,
+full declarations and execution activation are independent: versioned
+`tool_activation` sections carry the account/model/API/endpoint/catalog identity
+and active names through restart and compaction. Only matching, valid state and
+newer successful ToolSearch results restore activation; malformed or changed
+epochs fail closed. Inactive declared tools are blocked before extension/Host
+execution, and activation never bypasses mode or approval checks. The full
+catalog is deterministic from the first request. More than 128 tools or an
+insufficient context budget falls back to on-demand declarations with a
+diagnostic, without truncation. Other bindings retain their existing projection.
+Fixed declarations may increase total cost for short conversations. See the
+English section 7.1 and the chronological-system-transcript ADR for the complete
+contract.
 
 对于用户可见的 HTML 可交付成果，默认系统提示要求代理
 创建页面或创建第一个页面后激活 `BrowserPreview` 一次
@@ -1162,7 +1171,7 @@ System/Direct/Custom 代理路由保持不变。
 provider transport 重建。`EPROTO` 等协议错误继续使用原有重试行为。详见
 [证书信任 ADR](../../../adr/provider-system-certificates.md)。
 
-## Pi 1.0.0 execution boundary
+## Pi 1.0.1 execution boundary
 
 Published model metadata and account entitlement come from one account-scoped
 Pi Models collection. Effective binding projection is shared by launch, delegates

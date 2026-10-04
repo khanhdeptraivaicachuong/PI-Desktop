@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
@@ -59,6 +59,24 @@ describe("NativePiSessionService", () => {
     const detail = service.detail(sessions[0].id);
     expect(detail?.messages.map((message) => message.content)).toEqual(["hello", "active branch"]);
     expect(readFileSync(f.file)).toEqual(before);
+  });
+
+  it("collapses copied session files onto one entry per native id (#1359)", async () => {
+    const f = fixture();
+    // A backup copy of the session under a subdirectory of the scan root:
+    // same header id, different path. It must not become a second session.
+    const backupDir = join(f.sessionRoot, "backup");
+    mkdirSync(backupDir, { recursive: true });
+    writeFileSync(join(backupDir, "fixture-copy.jsonl"), f.text);
+
+    // Control: without the copy, list() names the original file's id.
+    const control = new NativePiSessionService({ agentDir: f.agentDir, sessionRoot: f.sessionRoot });
+    const [original] = await control.list();
+
+    const service = new NativePiSessionService({ agentDir: f.agentDir, sessionRoot: f.sessionRoot });
+    const sessions = await service.list();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe(original.id);
   });
 
   it("searches native metadata and active-branch message text without rewriting JSONL", async () => {
@@ -781,7 +799,7 @@ describe("native fork children", () => {
         expect(failure?.message).not.toContain(f.group);
         expect(existsSync(foreignPath)).toBe(true);
         expect(readFileSync(foreignPath, "utf8")).toContain("collision");
-        expect(groupEntries(f.group).sort()).toEqual(before.concat([foreignPath.split("/").at(-1)!]).sort());
+        expect(groupEntries(f.group).sort()).toEqual(before.concat([basename(foreignPath)]).sort());
         expect(readFileSync(f.file, "utf8")).toBe(parentBytes);
       } finally { service.disposeAll(); }
     } finally {

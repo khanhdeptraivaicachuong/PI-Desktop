@@ -37,10 +37,12 @@ relational schema. The host stores one JSON record per group in the
 `projectGroups` namespace, shared memory in `projectGroupMemory`, and shared
 instructions in `projectGroupInstructions`. The record contains the stable group
 id, display name, ordered canonical roots, primary root, timestamps, and optional
-`detachedPaths`. Removed roots stay in `detachedPaths` so an old path project
-record is not recreated as a standalone legacy group; sessions and files are not
-deleted. Existing path projects are projected as legacy single-root groups at
-read time; their path-scoped memory and filesystem instructions remain readable.
+`detachedPaths`. Removed roots without sessions stay in `detachedPaths` so an old
+path project record is not recreated as a standalone legacy group. A removed root
+with sessions is omitted from `detachedPaths` and remains readable as a standalone
+legacy group; removing a root from group membership never deletes sessions or files.
+Existing path projects are projected as legacy single-root groups at read time;
+their path-scoped memory and filesystem instructions remain readable.
 5. **Plan/Goal checkpoints are immutable host artifacts** with recorded path,
    hash, and size; the existing approval row also carries execution fields.
    Startup interruption is the process-epoch fence and no work is replayed.
@@ -178,6 +180,24 @@ per message; `seq` is implied by line order:
 {"type":"message","id":"m3","role":"assistant","createdAt":"…","blocks":[{"type":"thinking","text":"…"},{"type":"text","text":"…"}],"meta":{"usage":{},"modelId":"…"}}
 {"type":"compaction","id":"cp1","summary":"…","firstKeptMessageId":"m2","throughMessageId":"m3","tokensBefore":917000,"retainedTail":[…],"providerId":"…","modelId":"…","createdAt":"…"}
 ```
+
+Internal system-state rows use role `system`, empty visible content, and optional
+`meta.modelSystem = { version: 1, messageJson, beforeMessageId?, afterMessageId? }`.
+`messageJson` is validated JSON text of a Pi system message with sections and tool
+schema deltas; executable functions are excluded. JSON text preserves section and schema key
+order across Rust storage; parsing for validation never reserializes it. Stable row IDs make retries
+idempotent. The anchors restore logical model order when a user row was already
+persisted before its preceding declaration; a surviving following anchor takes
+precedence, then a preceding anchor, then the record's continuation position.
+Forks remap surviving anchor IDs. Normal system notices remain visible; internal
+model-state rows do not produce transcript bubbles or search text.
+
+Compaction details may include one `systemMessageJson` checkpoint. It replaces old
+system updates in the retained tail and is restored before the summary. These
+optional metadata fields use the existing JSONL/SQLite index and require no
+schema migration. Old sessions remain readable; their first continuation records
+a new baseline. Older app versions ignore the metadata and reconstruct their
+usual current prompt, so downgrade does not promise the same cache prefix.
 
 `sessions/<sessionId>.inflight.json` — the assistant reply currently
 streaming in the session, as one `{ schema, sessionId, turnId, savedAt,
@@ -893,9 +913,10 @@ type Block =
       status: "ok" | "error" | "denied"; result?: unknown;
       completedAt?: string; durationMs?: number;
       toolUsage?: ToolTokenUsage }
-  | { type: "attachment"; kind: "image" | "file"; name: string;
-      ref: string /* attachments/<sha256> or absolute path */;
-      mimeType?: string; size?: number }
+  | { type: "attachment"; kind: "image" | "file" | "session"; name: string;
+      ref: string /* attachments/<sha256>, absolute path, or session id */;
+      mimeType?: string; size?: number;
+      text?: string /* bounded referenced-conversation excerpt */ }
   | { type: "hostedSearch"; status: "searching" | "completed" | "failed";
       rounds: Array<{ id: string;
         status: "searching" | "completed" | "failed";
@@ -918,6 +939,13 @@ type Block =
   `scratch/<sessionId>/replayed/` when a path fallback is required. Images
   above the inline bound are hashed and copied with streaming file operations;
   startup and history hydration must not load the whole image into memory.
+- A `kind: "session"` block is a conversation reference: it stores the session
+  id it names, the display title, and the bounded excerpt quoted to the model,
+  so a later turn reads the same reference instead of re-reading the referenced
+  conversation. The excerpt bound, the same-project rule, and the
+  `<session_reference>` prompt block belong to the reference contract
+  (`04-ux/08-component-spec.md` §20B); the host stores exactly what it is given
+  and never reads the referenced session to build one.
 - Assistant thinking is stored only in `thinking` blocks inside the file. The
   derived `text` column contains final answer text, so transcript search and
   answer previews do not expose or mix reasoning.
@@ -1672,6 +1700,11 @@ source-discriminated transcript authority owned by the Node agent sidecar. They
 are never inserted into SQLite and never copied to the Desktop transcript
 directory. `session.list` merges their projections with Rust-owned
 Desktop summaries, and `session.get` routes by the opaque `native-pi:` id.
+Discovery deduplicates native files that share the same JSONL `header.id`,
+keeping the projection with the newest transcript `updatedAt`. The selected
+file retains its path-derived opaque session id; duplicate files are not
+rewritten or deleted, and their paths are omitted from the in-memory lookup
+map for the current scan.
 
 Detail reads take an immutable byte snapshot, parse it into an in-memory
 `SessionManager`, and follow the current native branch. They must not call

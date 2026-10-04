@@ -14,6 +14,19 @@ const message = (id, role, content, extra = {}) => ({
   id, role, content, createdAt: "2026-09-30T00:00:00.000Z", ...extra,
 });
 
+test("model system records remain hidden after loading and live projection updates", () => {
+  const state = message("state", "system", "", { modelSystem: {
+    version: 1, beforeMessageId: "user", messageJson: JSON.stringify({ role: "system", content: "Instructions", timestamp: 1 }),
+  } });
+  const user = message("user", "user", "Hello");
+  const notice = message("notice", "system", "Visible notice");
+  let rows = [state, user, notice];
+  assert.deepEqual(assertProjection(rows).visible.map((row) => row.id), ["user", "notice"]);
+  rows = upsertLiveSessionMessage(rows, message("answer", "assistant", "Hello back"));
+  assert.deepEqual(assertProjection(rows).visible.map((row) => row.id), ["user", "notice", "answer"]);
+  assert.equal(rows[0], state);
+});
+
 function assertProjection(messages, compactions) {
   const actual = getTranscriptProjection(messages, compactions);
   const expected = buildTranscriptEntries(messages, compactions);

@@ -186,6 +186,7 @@ export const fr = {
     batchDelete: "Supprimer {{count}} sessions",
     batchDeleteConfirm: "Supprimer {{count}} sessions ?",
     "copyConversationId": "Copier l'ID de conversation",
+    "copySessionLink": "Copier le lien de la conversation",
     "openSessionPath": "Ouvrir le chemin de la session",
     "timeGroupYesterday": "Hier",
     "timeGroupThisWeek": "7 jours précédents",
@@ -321,6 +322,8 @@ export const fr = {
     "conversationMenu": "Actions de la conversation",
     "selectMessageText": "Sélectionner le texte du message",
     "copyConversation": "Copier la conversation",
+    "sessionReference": "Conversation",
+    "sessionReferenceOpen": "Ouvrir la conversation {{title}}",
     "selectConversationText": "Sélectionner le texte de la conversation",
     "scrollToTop": "Aller en haut",
     "speakerYou": "Vous",
@@ -1674,7 +1677,7 @@ sklm: {
     "openActions": "Ouvrir les actions pour {{name}}",
     "reorder": "Réorganiser {{name}}",
     "editTitle": "Modifier le projet",
-    "editDescription": "Mettez à jour le nom et les dossiers du projet.",
+    "editDescription": "Un dossier retiré qui contient des discussions devient un projet distinct ; ses discussions sont conservées.",
     "editAction": "Enregistrer les modifications",
     "editSaving": "Enregistrement…",
     "editCancel": "Annuler",
@@ -2337,7 +2340,11 @@ sklm: {
       "errorCommandDots": "La commande ne peut pas contenir '..'.",
       "errorUrl": "Une URL est requise.",
       "errorUrlShape": "Ce n'est pas une URL valide.",
-      "errorUrlScheme": "Utilisez une URL http ou https."
+      "errorUrlScheme": "Utilisez une URL http ou https.",
+      "timeout": "Délai de connexion",
+      "timeoutHint": "Délai en secondes pour la connexion et la détection des outils (défaut : 10s, max : 600s).",
+      "timeoutPlaceholder": "10",
+      "errorTimeoutRange": "Le délai doit être compris entre 1 et 600 secondes."
     },
     "skills": {
       "add": "Nouvelle compétence",

@@ -1,3 +1,4 @@
+import { transcriptCompat } from "./transcript-compat.js";
 /**
  * Provider/model wiring shared by the session runtime and its subagents.
  *
@@ -312,7 +313,7 @@ export function buildProviderModel(
   const binding = apiBindingForProviderModel(provider);
   const catalog = provider.modelConfig;
   const catalogModel = catalog
-    ? (({ source: _source, nativeCost, ...model }) => ({
+    ? (({ source: _source, transcriptBinding: _transcriptBinding, nativeCost, ...model }) => ({
         ...model,
         ...(nativeCost ? { cost: nativeCost } : {}),
       }))(catalog)
@@ -386,7 +387,7 @@ export function buildProviderModel(
       }) === "on"
         ? true
         : undefined,
-    ...(compat ? { compat } : {}),
+    compat: { ...compat, ...transcriptCompat(catalog, provider.modelId, binding.api, baseUrl) },
     ...(Object.keys(modelHeaders).length > 0 ? { headers: modelHeaders } : {}),
   } as Model<Api>;
 }

@@ -251,9 +251,12 @@ may be retained while exactly one workspace supplies the visible shell context.
   trims and persists a 1–80 Unicode-code-point group name and lists every
   registered folder. The Primary folder stays first and cannot be removed;
   additional folders can be added through the native multi-selection picker or
-  removed individually. Saving updates the host-owned group while preserving
-  the normalized paths, workspace identity, sessions, transcripts, and on-disk
-  folders. A folder with existing chats cannot be removed.
+  removed individually. Saving updates group membership without rewriting path
+  identities, workspace identity, session ownership, transcripts, or on-disk
+  folders. Removing an additional folder with chats detaches it as a standalone
+  project and keeps its chats available there. Future chats use that project's
+  path-scoped context; shared instructions and memory stay with the original
+  group.
 - **Pin** toggles presentation priority. Pinned projects/conversations appear
   before unpinned rows within the selected secondary order. In the sidebar, a
   pinned project replaces its Folder glyph with a filled accent Star so its
@@ -650,7 +653,10 @@ may be retained while exactly one workspace supplies the visible shell context.
   approaches the viewport; thinking disclosures always retain Mermaid source.
 - Diagram render failure or the 20,000-character / 500-edge safety limit keeps
   the source visible and copyable instead of failing the assistant turn.
-- Cursor indicator: subtle pulsing accent dot or line at the end of streaming content
+- Cursor indicator: subtle pulsing accent line at the end of streaming inline
+  content. For Markdown lists and quotes, attach it to the terminal paragraph
+  or text leaf; never append it to a nested list container, which creates an
+  extra line box and shifts content while the response streams.
 - Before the first assistant or tool event, the active turn shows one compact
   localized `Working…` status with elapsed time. When the runtime reports a
   quiet interval, that same row names the wait: starting, waiting for the
