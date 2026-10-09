@@ -1,3 +1,4 @@
+import { projectPlanHistory } from "../../lib/plan-history";
 import i18n from "i18next";
 import {
   dedupeSessionMessages,
@@ -13,6 +14,7 @@ import {
 import type {
   AgentEventEnvelope,
   PlanningStateEvent,
+  PlanProposal,
   SessionTodoSnapshot,
   UiMessage,
 } from "@pi-desktop/shared";
@@ -58,7 +60,6 @@ export type EventsSliceDependencies = StoreAccess & {
     kind: "ask" | "permission" | "plan",
     payload?: { question?: string; toolName?: string },
   ) => void;
-  triggerAutoTitleSummarization: (sessionId: string) => Promise<void>;
   flushPendingSessionConfiguration: (sessionId: string) => Promise<void>;
   assistantErrorMessage: (error: {
     code: string;
@@ -102,7 +103,6 @@ export function createEventsSlice({
   sessionModeForPlanningState,
   openPlanArtifact,
   notifyInteractivePrompt,
-  triggerAutoTitleSummarization,
   flushPendingSessionConfiguration,
   assistantErrorMessage,
   withCompactionMark,
@@ -121,6 +121,31 @@ export function createEventsSlice({
       flushingStreamUpdates = false;
     }
   });
+
+  // Only full host proposals certify approval. The live approval bar's
+  // legacy state-only fallbacks must not become authoritative history.
+  const historyCheckpoints = new Map<string, PlanProposal>();
+  const projectCheckpointHistory = (sessionId: string, proposal?: PlanProposal) => {
+    if (!proposal || proposal.sessionId !== sessionId) return;
+    const previous = historyCheckpoints.get(sessionId);
+    if (previous && (previous.id === proposal.id
+      ? previous.version > proposal.version ||
+        (previous.version === proposal.version && previous.updatedAt > proposal.updatedAt)
+      : previous.createdAt > proposal.createdAt)) return;
+    historyCheckpoints.set(sessionId, proposal);
+    runtime.liveSessionTranscripts.add(sessionId);
+    const project = (messages: UiMessage[]) => projectPlanHistory(
+      messages, [{ proposal, superseded: false }], sessionId,
+    );
+    const cached = runtime.sessionTranscriptCache.get(sessionId);
+    if (cached) runtime.cacheSessionTranscript(sessionId, project(cached));
+    set(state => ({
+      ...(state.activeSessionId === sessionId ? { messages: project(state.messages) } : {}),
+      ...(state.retainedTranscripts[sessionId] ? { retainedTranscripts: {
+        ...state.retainedTranscripts, [sessionId]: project(state.retainedTranscripts[sessionId]),
+      } } : {}),
+    }));
+  };
 
   return {
     applyTodosChanged: (snapshot: SessionTodoSnapshot) => {
@@ -174,6 +199,7 @@ export function createEventsSlice({
           ),
         };
       });
+      projectCheckpointHistory(event.sessionId, event.proposal);
       const checkpoint = get().planCheckpoints[event.sessionId];
       if (event.state === "awaiting_approval" && isPendingPlan(checkpoint)) {
         openPlanArtifact(
@@ -194,6 +220,17 @@ export function createEventsSlice({
     },
 
     handleAgentEvent: (envelope) => {
+      if (envelope.event.type === "message_end") {
+        const checkpoint = historyCheckpoints.get(envelope.sessionId);
+        if (checkpoint) {
+          const [message] = projectPlanHistory(
+            [envelope.event.message],
+            [{ proposal: checkpoint, superseded: false }],
+            envelope.sessionId,
+          );
+          envelope = { ...envelope, event: { ...envelope.event, message } };
+        }
+      }
       const event = envelope.event;
       if (event.type === "agent_end" || event.type === "error") {
         runtime.submittedComposerDrafts.delete(envelope.sessionId);
@@ -371,6 +408,7 @@ export function createEventsSlice({
               : withoutRecordKey(state.pendingPlans, envelope.sessionId),
           };
         });
+        projectCheckpointHistory(envelope.sessionId, event.proposal);
         if (event.state === "awaiting_approval") {
           const checkpoint = get().planCheckpoints[envelope.sessionId];
           if (isPendingPlan(checkpoint)) {
@@ -458,7 +496,6 @@ export function createEventsSlice({
           });
         } else if (event.type === "agent_end") {
           void get().refreshSessions();
-          void triggerAutoTitleSummarization(envelope.sessionId);
         } else if (event.type === "planning_state") {
           void get().refreshSessions();
         }
@@ -500,7 +537,6 @@ export function createEventsSlice({
         case "agent_end":
           set({ isRunning: false });
           void get().refreshSessions();
-          void triggerAutoTitleSummarization(envelope.sessionId);
           break;
         case "turn_end":
           break;

@@ -183,7 +183,11 @@ provider disappears from the picker.
 
 The sheet also offers an ordered **Fallback models** list using that same
 configured-model picker. Users can add, move up/down, or remove alternatives.
-Already-selected models are excluded from the add menu. Saved pins that become
+Already-selected models are excluded from the add menu. Each saved row shows the
+configured provider display name and model ID when the catalog still contains it.
+When selected fallback rows have the same visible label, resolved rows include
+the provider ID; unresolved or same-provider duplicates include their position
+and stored pin instead. The stored pin is unchanged. Saved pins that become
 unavailable stay visible and removable; reopening or editing another field
 must not drop them. Clearing the list saves `fallbackModels: []`. Inherit-session
 remains a primary-only choice. The hint explains that alternatives run after
@@ -400,34 +404,36 @@ duplicate accounts from one vendor remain distinguishable; Composer model rows
 show the configured wire model ID, while a configured alias remains available
 as the compact selected-chip label.
 
-## 10. Default model policy
+## 10. Recent chat model policy
 
-App-level default:
-- first successfully tested provider + its default/recommended model
-- the Settings default-model picker lists every configured model under its provider; selecting an entry persists both the owning provider and that exact model ID
-- saving that provider preserves the selected app-default model while it remains configured; removing it falls back to the first remaining binding
-- the picker supports local search across provider name and model ID; its result list scrolls within the floating surface and shows an explicit empty state when no model matches
-- the picker uses concise settings-specific search copy; each result gives visual priority to the model ID and keeps the provider as secondary metadata
-- results are grouped by provider so a provider name is shown once per group rather than repeated on every model row
-- a provider is named the same way here as in the Composer menu: an OAuth row
-  uses its non-secret account label when present, so two accounts of one vendor
-  stay distinguishable in the group heading, in the summary line that reports
-  the current default, and in each option's accessible name. Search matches the
-  account label and the vendor name, so either spelling reaches the row
-- the Settings prompt-enhancement model picker reuses this menu and resolves its
-  provider names the same way
-- if none configured, onboarding checklist requires provider setup before first agent run
+New desktop chats inherit the most recently used available chat
+model. An explicit draft selection takes precedence; existing sessions retain
+their pinned provider/model pair. Selecting or submitting an existing chat does
+not change another chat's binding. Opening a chat alone does not reorder history.
 
-Session-level:
-- inherits app default at creation and stores that `providerId`/`modelId` pair
-- later Settings default-model changes apply only to new sessions and the
-  unpersisted home draft, not to already created sessions
-- initializes thinking from the inherited model's binding default. A known
-  reasoning model with no stored default falls back to its highest enabled
-  level; an unmatched model with no stored default starts at `off` while its
-  canonical thinking levels remain selectable in Composer. An empty or
-  `off`-only binding starts at `off`
-- can override independently
+The renderer stores up to 20 provider/model pairs in the local UI preferences,
+newest first, deduplicated by provider ID and case-insensitive full wire model ID.
+Only accepted message submission updates history, using that submission's
+provider/model pair. Selecting a model, changing reasoning, or applying deferred
+configuration alone does not count as usage. Rejected submissions do not replace
+the preference. Sending in an older chat does update the recent usage order. This preference survives renderer reload and app
+restart and is not part of cloud configuration sync.
+
+Inheritance skips deleted, disabled, unauthenticated and image-generation
+bindings. With no usable history it uses a valid legacy app selection, otherwise
+the first available configured chat binding. Legacy settings and provider default
+fields remain readable for scheduled jobs and older consumers; no database or
+IPC migration is required. Settings has no fixed chat-default picker or service
+"Make default" action. Image-generation selection remains independent.
+
+The combined Composer model menu shows the three most recent available bindings
+first. Each row identifies the provider as well as the model or alias. Search is
+always visible and searches all configured models. Other models expand inline,
+grouped by provider, without duplicating recent entries. With no history, all
+models are visible immediately. The current model is checked; reasoning controls
+remain below the list. Discovery enriches exact
+configured IDs without adding unconfigured choices. Model and reasoning changes
+retain the existing session configuration and permission boundaries.
 
 ## 11. Capability gating
 
@@ -439,6 +445,8 @@ Session-level:
 | structured repair helpers | `json` optional |
 
 Warnings are non-blocking unless execution is impossible.
+
+Composer context-window labels resolve the exact binding with `effectiveContextWindow`: explicit user limits override discovery, catalog-owned limits follow discovery, and legacy bindings preserve their saved limits. A binding with a valid saved limit still displays it when discovery is unavailable. This display resolution does not modify the discovered catalog or runtime safety budgets.
 
 ### 11.1 Reasoning capability resolution
 

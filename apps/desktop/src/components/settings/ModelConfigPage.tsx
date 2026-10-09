@@ -1,38 +1,34 @@
 /**
- * Model configuration tab: default model, the AI service list, and the
- * models.dev enrichment snapshot status.
+ * Model configuration tab: AI services, Jev settings, image model selection,
+ * and the models.dev enrichment snapshot status.
  *
  * API services, plugin-declared services and vendor subscription accounts
  * share one list (D625). An account row still lives and dies through the
  * vendor-account editor and `deleteOauthAccount`, never the provider CRUD.
  *
- * The default picker lists each configured model, while provider rows use
- * `models[0]` as the provider's quick default. Editing the default provider
- * preserves `settings.defaultModelId` while that model remains configured, and
- * adding a provider claims the chat or image default only while none resolves.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  vendorAccountImageCandidates,
   type ImageGenerationBinding,
   type ModelBinding,
   type ProviderPublic,
 } from "@pi-desktop/shared";
 import { useAppStore } from "../../stores/app-store";
 import { api } from "../../lib/api";
-import { providerDisplayName, providerSearchText } from "../../lib/provider-display";
-import { Button, Input, cx } from "../ui";
+import { Button } from "../ui";
 import {
-  IconCheck,
-  IconChevronDown,
   IconConfig,
   IconPlus,
   IconServer,
-  IconSearch,
 } from "../icons";
-import { AnchoredMenu } from "./AnchoredMenu";
 import { providerServesChatModels } from "./default-model";
-import { planImageGenerationDefaults } from "./image-generation-default";
+import {
+  imageGenerationPickerCandidates,
+  isImageGenerationPickerCandidate,
+  planImageGenerationDefaults,
+} from "./image-generation-default";
 import { copyProviderConfiguration, type ProviderCopyDraft } from "./provider-copy";
 import { ImageGenerationModelRow } from "./ImageGenerationModelRow";
 import { OAuthLoginDialog } from "./OAuthLoginDialog";
@@ -41,6 +37,11 @@ import { ServiceList } from "./ServiceList";
 import { serviceRowKind } from "./service-row-status";
 import { useVendorAccounts } from "./useVendorAccounts";
 import { VendorAccountDialog, type VendorAccountForm } from "./VendorAccountDialog";
+import { ModelConfigImportPanel } from "../../features/settings/imports/ModelConfigImportPanel";
+import { ImportToggleButton } from "../../features/settings/import-workbench";
+import { JevSettingsCard } from "./JevSettingsCard";
+import { JEV_SERVICE } from "./service-catalog";
+import { isPluginCatalogSetupForProvider } from "./provider-setup-mode";
 
 type CatalogStatus = {
   loaded: boolean;
@@ -72,30 +73,16 @@ function imageCandidates(
   return result;
 }
 
-function isImageCandidate(candidates: readonly ImageGenerationBinding[], providerId: string, modelId: string) {
-  return candidates.some((entry) => entry.providerId === providerId && sameWireId(entry.modelId, modelId));
-}
-
 function chatModelOptions(providers: readonly ProviderPublic[], imageModels: readonly ImageGenerationBinding[]) {
   return providers.flatMap((provider) => {
     const ids = provider.models?.length
       ? provider.models.map((model) => model.id)
       : [provider.defaultModelId ?? ""];
-    return ids.filter((id) => !!id.trim() && !isImageCandidate(imageModels, provider.id, id))
+    return ids.filter((id) => !!id.trim() && !isImageGenerationPickerCandidate(imageModels, provider.id, id))
       .map((modelId) => ({ provider, modelId }));
   });
 }
 
-
-function displayedChatModelId(
-  provider: ProviderPublic,
-  selected: string | undefined,
-  imageModels: readonly ImageGenerationBinding[],
-) {
-  const configured = chatModelOptions([provider], imageModels).map(({ modelId }) => modelId);
-  // Never display a different configured model in place of the saved wire ID.
-  return selected?.trim() || configured[0];
-}
 
 export function ModelConfigPage() {
   const { t, i18n } = useTranslation();
@@ -107,13 +94,21 @@ export function ModelConfigPage() {
   // null = closed, "" = add flow, provider id = edit flow.
   const [copyDraft, setCopyDraft] = useState<ProviderCopyDraft | null>(null);
   const [setupFor, setSetupFor] = useState<string | null>(null);
-  const [pickingDefault, setPickingDefault] = useState(false);
-  const [defaultModelQuery, setDefaultModelQuery] = useState("");
+  const [pluginCatalogSetup, setPluginCatalogSetup] = useState<{
+    providerId: string;
+    pluginName: string;
+  } | null>(null);
+
+  // The Jev card opens the same dialog, straight on the Jev service.
+  const [jevSetup, setJevSetup] = useState(false);
+  // Bumped when that dialog stored a key, so the card re-reads what exists.
+  const [jevStatusRevision, setJevStatusRevision] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [changingImageModel, setChangingImageModel] = useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
   const [catalogStatus, setCatalogStatus] = useState<CatalogStatus | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const {
     vendors,
     accountFor,
@@ -141,68 +136,24 @@ export function ModelConfigPage() {
   }, []);
 
   const imageGenerationCandidates = useMemo(
-    () => imageCandidates(settings?.imageGenerationModels, settings?.imageGeneration),
-    [settings?.imageGenerationModels, settings?.imageGeneration],
+    () => imageCandidates([
+      ...imageCandidates(settings?.imageGenerationModels, settings?.imageGeneration),
+      // A signed-in vendor account serves its image model without listing it as
+      // a chat model, so it must reach this list or the picker row never renders.
+      ...vendorAccountImageCandidates(providers),
+    ], null),
+    [settings?.imageGenerationModels, settings?.imageGeneration, providers],
   );
   const providerReady = (provider: ProviderPublic) =>
     providerServesChatModels(provider, imageGenerationCandidates);
 
-  const readyProviders = providers.filter(providerReady);
-  const defaultModelOptionsList = chatModelOptions(readyProviders, imageGenerationCandidates);
-  const visibleDefaultModelOptions = useMemo(() => {
-    const query = defaultModelQuery.trim().toLowerCase();
-    if (!query) return defaultModelOptionsList;
-    return defaultModelOptionsList.filter(({ provider, modelId }) =>
-      `${providerSearchText(provider)} ${modelId}`.toLowerCase().includes(query),
-    );
-  }, [defaultModelOptionsList, defaultModelQuery]);
-
-
   if (!settings) return null;
 
-  const defaultProvider =
-    providers.find((provider) => provider.id === settings.defaultProviderId) ?? null;
   const editingProvider =
     setupFor ? providers.find((provider) => provider.id === setupFor) ?? null : null;
   const editingAccount = editingAccountId
     ? providers.find((provider) => provider.id === editingAccountId) ?? null
     : null;
-  const effectiveDefaultModelId = settings.defaultModelId?.trim() ||
-    defaultProvider?.models?.[0]?.id || defaultProvider?.defaultModelId;
-  const defaultProviderReady = defaultProvider !== null && providerReady(defaultProvider) &&
-    chatModelOptions([defaultProvider], imageGenerationCandidates).some(
-      ({ modelId }) => sameWireId(modelId, effectiveDefaultModelId ?? ""),
-    );
-
-
-  const setDefaultModel = async (provider: ProviderPublic, modelId: string) => {
-    if (isImageCandidate(
-      imageCandidates(
-        useAppStore.getState().settings?.imageGenerationModels,
-        useAppStore.getState().settings?.imageGeneration,
-      ),
-      provider.id,
-      modelId,
-    )) return;
-    setBusyId(provider.id);
-    try {
-      await api.setSettings({
-        ...settings,
-        defaultProviderId: provider.id,
-        defaultModelId: modelId,
-      });
-      await refreshProviders();
-      showToast(t("settings.defaultUpdated"), { variant: "success" });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), {
-        variant: "error",
-      });
-    } finally {
-      setBusyId(null);
-      setPickingDefault(false);
-    }
-  };
-
   /**
    * Preserve the selected app defaults unless they were removed from the
    * provider or no longer resolve, and let a newly added provider claim a
@@ -223,10 +174,30 @@ export function ModelConfigPage() {
       settings.defaultProviderId === saved.id && firstModelId &&
       !models.some((model) => sameWireId(model.id, settings.defaultModelId ?? "") &&
         !selectedImageIds.some((id) => sameWireId(id, model.id)))
-        ? firstModelId
-        : undefined;
+    ? firstModelId
+    : undefined;
     try {
-      if (imageModelIds !== undefined) {
+      if (pluginCatalogSetup?.providerId === saved.id) {
+        const defaultsProviders = [...providers.filter((provider) => provider.id !== saved.id), saved];
+        const currentDefault = defaultsProviders.find(
+          (provider) => provider.id === settings.defaultProviderId,
+        );
+        const keepsCurrentDefault = !!currentDefault &&
+          providerServesChatModels(currentDefault, imageGenerationCandidates) &&
+          chatModelOptions([currentDefault], imageGenerationCandidates).some(
+            ({ modelId }) => sameWireId(modelId, settings.defaultModelId ?? ""),
+          );
+        if (!keepsCurrentDefault && firstModelId) {
+          const nextSettings = {
+            ...settings,
+            defaultProviderId: saved.id,
+            defaultModelId: firstModelId,
+          };
+          await api.setSettings(nextSettings);
+          useAppStore.setState({ settings: nextSettings });
+        }
+        showToast(t("settings.pluginProviderKeySaved"), { variant: "success" });
+      } else if (imageModelIds !== undefined) {
         const current = await api.getSettings();
         const plan = planImageGenerationDefaults(
           current,
@@ -274,6 +245,7 @@ export function ModelConfigPage() {
       }
       setSetupFor(null);
       setCopyDraft(null);
+      setPluginCatalogSetup(null);
       await refreshProviders();
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), {
@@ -286,11 +258,17 @@ export function ModelConfigPage() {
     setChangingImageModel(true);
     try {
       const current = await api.getSettings();
-      const candidates = imageCandidates(
+      // Exactly the list the picker row offered, so a choice the user could
+      // make is always one this page accepts — including the image model of a
+      // signed-in vendor account, which is never stored as a chat model.
+      const candidates = imageGenerationPickerCandidates(
         current.imageGenerationModels,
         current.imageGeneration,
+        providers,
       );
-      if (!isImageCandidate(candidates, binding.providerId, binding.modelId)) return;
+      if (!isImageGenerationPickerCandidate(candidates, binding.providerId, binding.modelId)) {
+        return;
+      }
       const nextSettings = { ...current, imageGeneration: binding };
       await api.setSettings(nextSettings);
       useAppStore.setState({ settings: nextSettings });
@@ -426,140 +404,6 @@ export function ModelConfigPage() {
     <div className="settings-stack model-config-page">
       <section className="settings-card-block">
         <div className="model-config-section-head">
-          <h3 className="settings-card-heading">{t("settings.defaultsTitle")}</h3>
-        </div>
-        <div className="settings-panel model-default-panel">
-          <div className="settings-row model-default-row">
-            <div className="settings-row-copy model-default-copy">
-              <div className="settings-row-title model-default-label">
-                {t("settings.defaultModel")}
-              </div>
-              {defaultProviderReady ? (
-                <div className="settings-row-detail model-default-value">
-                  <span className="model-default-provider">
-                    {providerDisplayName(defaultProvider)}
-                  </span>
-                  <span className="model-default-sep" aria-hidden>
-                    ·
-                  </span>
-                  <span className="model-default-model font-mono">
-                    {displayedChatModelId(defaultProvider, effectiveDefaultModelId, imageGenerationCandidates) ||
-                      t("settings.noModel")}
-                  </span>
-                </div>
-              ) : (
-                <div className="settings-row-detail model-default-value">
-                  {defaultProvider && settings.defaultModelId ? (
-                    <>
-                      <span className="model-default-provider">{providerDisplayName(defaultProvider)}</span>
-                      <span className="model-default-sep" aria-hidden>·</span>
-                      <span className="model-default-model font-mono" title={t("settings.noDefaultProvider")}>
-                        {settings.defaultModelId}
-                      </span>
-                      <span className="model-default-empty">{t("settings.noDefaultProvider")}</span>
-                    </>
-                  ) : (
-                    <span className="model-default-empty">
-                      {readyProviders.length === 0
-                        ? t("settings.defaultModelNone")
-                        : t("settings.noDefaultProvider")}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            <AnchoredMenu
-              className="model-default-anchor"
-              open={pickingDefault}
-              onClose={() => setPickingDefault(false)}
-              menuClassName="model-default-menu"
-              label={t("settings.changeDefaultModel")}
-              align="end"
-              trigger={(ref) => (
-                <Button
-                  ref={ref}
-                  className="settings-text-action model-default-trigger"
-                  variant="ghost"
-                  disabled={readyProviders.length === 0}
-                  onClick={() => {
-                    setDefaultModelQuery("");
-                    setPickingDefault((current) => !current);
-                  }}
-                  aria-haspopup="listbox"
-                  aria-expanded={pickingDefault}
-                >
-                  {t("settings.changeDefaultModel")}
-                  <IconChevronDown className="model-default-trigger-chevron" size={13} aria-hidden />
-                </Button>
-              )}
-            >
-              <div className="model-default-search">
-                <IconSearch size={14} aria-hidden />
-                <Input
-                  value={defaultModelQuery}
-                  onChange={(event) => setDefaultModelQuery(event.target.value)}
-                  placeholder={t("settings.defaultModelSearch")}
-                  aria-label={t("settings.defaultModelSearch")}
-                  autoFocus
-                />
-              </div>
-              <div className="model-default-results" role="presentation">
-                {visibleDefaultModelOptions.length === 0 ? (
-                  <div className="model-default-no-results">{t("settings.noModelMatches")}</div>
-                ) : null}
-                <ul className="model-default-list">
-                  {visibleDefaultModelOptions.map(({ provider, modelId }, index) => {
-                    const isCurrent =
-                      provider.id === settings.defaultProviderId &&
-                      sameWireId(settings.defaultModelId ?? "", modelId);
-                    const previous = visibleDefaultModelOptions[index - 1];
-                    const startsGroup = !previous || previous.provider.id !== provider.id;
-                    return (
-                      <li key={`${provider.id}:${modelId}`}>
-                        {startsGroup ? (
-                          <div
-                            className={cx(
-                              "model-default-provider-group",
-                              index > 0 && "has-divider",
-                            )}
-                          >
-                            {providerDisplayName(provider)}
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={isCurrent}
-                          aria-label={`${providerDisplayName(provider)} · ${modelId}`}
-                          className={cx("model-default-option", isCurrent && "is-current")}
-                          disabled={busyId === provider.id}
-                          onClick={() => void setDefaultModel(provider, modelId)}
-                        >
-                          <span className="model-default-option-check" aria-hidden>
-                            {isCurrent ? <IconCheck size={12} /> : null}
-                          </span>
-                          <span className="model-default-option-model font-mono">{modelId}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </AnchoredMenu>
-          </div>
-          {imageGenerationCandidates.length > 0 ? (
-            <ImageGenerationModelRow
-              settings={settings}
-              providers={providers}
-              busy={changingImageModel}
-              onChange={setImageGenerationDefault}
-            />
-          ) : null}
-        </div>
-      </section>
-
-      <section className="settings-card-block">
-        <div className="model-config-section-head">
           <div className="settings-card-heading-line">
             <h3 className="settings-card-heading">{t("settings.providers")}</h3>
             {providers.length > 0 ? (
@@ -567,6 +411,12 @@ export function ModelConfigPage() {
             ) : null}
           </div>
           <div className="provider-section-head-actions">
+            <ImportToggleButton
+              open={importOpen}
+              controls="model-config-import-panel"
+              label={t("settings.importTitle")}
+              onClick={() => setImportOpen((current) => !current)}
+            />
             <Button
               variant="primary"
               className="model-provider-add"
@@ -578,6 +428,14 @@ export function ModelConfigPage() {
               </span>
             </Button>
           </div>
+        </div>
+
+        <div
+          id="model-config-import-panel"
+          className="import-inline-workbench"
+          hidden={!importOpen}
+        >
+          <ModelConfigImportPanel />
         </div>
 
         <div className="settings-panel model-provider-panel">
@@ -598,8 +456,6 @@ export function ModelConfigPage() {
           ) : (
             <ServiceList
               providers={providers}
-              defaultProviderId={settings.defaultProviderId}
-              isReady={providerReady}
               accountFor={accountFor}
               busy={
                 busyId !== null ||
@@ -616,12 +472,6 @@ export function ModelConfigPage() {
                 serviceRowKind(provider) === "account"
                   ? setEditingAccountId(provider.id)
                   : setSetupFor(provider.id)
-              }
-              onMakeDefault={(provider) =>
-                void setDefaultModel(
-                  provider,
-                  chatModelOptions([provider], imageGenerationCandidates)[0]?.modelId ?? "",
-                )
               }
               onTest={(provider) => void testProvider(provider)}
               onCopy={(provider) => {
@@ -676,24 +526,72 @@ export function ModelConfigPage() {
         </Button>
       </div>
 
+      <JevSettingsCard
+        settings={settings}
+        onConfigure={() => {
+          setJevSetup(true);
+          setSetupFor("");
+        }}
+        statusRevision={jevStatusRevision}
+      />
+
+      {imageGenerationCandidates.length > 0 ? (
+        <section className="settings-card-block">
+          <div className="settings-panel model-default-panel">
+            <ImageGenerationModelRow
+              settings={settings}
+              providers={providers}
+              busy={changingImageModel}
+              onChange={setImageGenerationDefault}
+            />
+          </div>
+        </section>
+      ) : null}
+
       {setupFor !== null ? (
         <ProviderSetupDialog
+          key={setupFor}
           provider={editingProvider}
+          pluginCatalogSetup={isPluginCatalogSetupForProvider(
+            pluginCatalogSetup,
+            editingProvider,
+          )}
+          pluginCatalogPluginName={pluginCatalogSetup?.pluginName}
           initialDraft={copyDraft}
-          onClose={() => { setSetupFor(null); setCopyDraft(null); }}
+          initialService={jevSetup ? JEV_SERVICE : undefined}
+          onClose={() => {
+            setSetupFor(null);
+            setCopyDraft(null);
+            setPluginCatalogSetup(null);
+            setJevSetup(false);
+          }}
           imageModelIds={editingProvider
             ? imageGenerationCandidates
                 .filter((binding) => binding.providerId === editingProvider.id)
                 .map((binding) => binding.modelId)
             : undefined}
           onSaved={afterSaved}
+          onJevConfigured={() => {
+            setSetupFor(null);
+            setCopyDraft(null);
+            setJevSetup(false);
+            // The card is already mounted: tell it the key it read has changed.
+            setJevStatusRevision((revision) => revision + 1);
+          }}
           vendors={vendors}
           onPickSubscription={(vendor) => {
             setSetupFor(null);
             setCopyDraft(null);
+            setPluginCatalogSetup(null);
             // Started here, not in the dialog: a click happens once, where
             // StrictMode would run a mount effect twice and open two browsers.
             startLogin(vendor);
+          }}
+          onPickPluginProvider={(providerId, pluginName) => {
+            setPluginCatalogSetup({ providerId, pluginName });
+            setCopyDraft(null);
+            setJevSetup(false);
+            setSetupFor(providerId);
           }}
         />
       ) : null}

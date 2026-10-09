@@ -72,7 +72,10 @@
   永不下发颜色
 - CSS 在加载时从磁盘读取并通过 IPC 整体交付；的
   渲染器将其注入到附加在后面的单个专用 `<style>` 元素中
-  应用程序自己的样式表，因此它可以覆盖令牌但从不注入标记
+  应用程序自己的样式表，因此它可以覆盖令牌但从不注入标记。
+  后写的声明只有在选择器特异度相同时才胜出；应使用
+  `:root[data-theme="light"]` 或 `:root[data-theme="dark"]` 匹配基础调色板的
+  选择器，单独的 `:root` 特异度更低
 - 选择主题是一个设置值（`plugin:<pluginId>:<themeId>`）；如果
   如果插件被禁用或卸载，设置将回退到 `system`
 
@@ -418,3 +421,11 @@ PI-Desktop 自己当前占用（默认是 `Alt+Space` 与 `Alt+Shift+W`；用户
 - 签名验证（仅对包进行 sha256 检查）
 - 声明的清单权限在加载时自动授予
 - `userSelected` root 不跨重启保留，插件每个会话都得重新问一次
+
+### Fetch redirect policy (unreleased)
+
+The host owns the same redirect loop for default and injected single-hop
+transports. `error` refuses every 3xx with REDIRECT_DISALLOWED; `manual` returns
+it without contacting its target. Default follow retains per-hop egress checks.
+See [the source API contract](/spec/07-plugins/03-plugin-api#net) for capability
+detection, deadline semantics and compatibility. No mode expands network grants.

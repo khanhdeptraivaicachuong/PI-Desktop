@@ -27,7 +27,7 @@ const result = await build({
 const exitSignal = new Error("test process exited");
 const harness = {
   anchor: "", selection: null, paths: [], windows: [], errors: [], restarts: 0, hostError: null,
-  app: { getPath: () => harness.anchor, getLocale: () => "en", setPath: (...value) => harness.paths.push(value), whenReady: async () => {}, relaunch: () => { harness.restarts++; }, exit: () => { throw exitSignal; } },
+  app: { getPath: (name) => name === "temp" ? maintenanceTemp : harness.anchor, getLocale: () => "en", setPath: (...value) => harness.paths.push(value), whenReady: async () => {}, relaunch: () => { harness.restarts++; }, exit: () => { throw exitSignal; } },
   dialog: { showOpenDialog: async () => ({ canceled: harness.selection === null, filePaths: [harness.selection] }), showMessageBox: async (...value) => { harness.errors.push(value); return { response: 0 }; } },
   BrowserWindow: class {
     constructor(options) { this.options = options; this.scripts = []; harness.windows.push(this); this.webContents = { setWindowOpenHandler: () => {}, on: () => {}, executeJavaScript: async (script) => { this.scripts.push(script); } }; }
@@ -39,7 +39,11 @@ const harness = {
 };
 globalThis.__storageHarness = harness;
 const bundleDirectory = await mkdtemp(join(tmpdir(), "pi-storage-bundle-"));
-after(() => rm(bundleDirectory, { recursive: true, force: true }));
+const maintenanceTemp = await mkdtemp(join(tmpdir(), "pi-storage-session-"));
+after(() => Promise.all([
+  rm(bundleDirectory, { recursive: true, force: true }),
+  rm(maintenanceTemp, { recursive: true, force: true }),
+]));
 const bundleFile = join(bundleDirectory, "storage-maintenance.mjs");
 await writeFile(bundleFile, result.outputFiles[0].text);
 const storage = await import(pathToFileURL(bundleFile).href);
@@ -323,6 +327,28 @@ test("setting the path schedules a cold restart, migration switches the pointer 
   assert.equal(harness.windows[0].options.webPreferences.partition.startsWith("persist:"), false);
   assert.equal(harness.windows[0].options.webPreferences.nodeIntegration, false);
   assert.ok(harness.windows[0].scripts.some((script) => script.includes(storage.catalogs.en.settings.storage.stages.relocating)));
+});
+
+test("pending maintenance redirects Chromium away from the profile being copied", { timeout: 60_000 }, async (t) => {
+  const value = await fixture(t); resetHarness(value.anchor);
+  const leveldb = join(value.roots.browser, "Local Storage/leveldb/LOG");
+  await put(leveldb, "leveldb log");
+  const id = randomUUID();
+  storage.writeStoragePreferences(join(value.anchor, storage.STORAGE_PREFERENCE_FILE), {
+    version: 1, roots: value.roots, backups: [],
+    pending: { id, kind: "migrate", target: value.target, language: "en" },
+  });
+  // The maintenance window is created at readiness. Chromium initializes its
+  // default session there, so the profile must already point elsewhere.
+  const ready = harness.app.whenReady;
+  t.after(() => { harness.app.whenReady = ready; });
+  harness.app.whenReady = async () => {
+    const redirected = harness.paths.some(([name, path]) => name === "sessionData" && path !== value.roots.browser && path !== value.anchor);
+    if (!redirected) await writeFile(leveldb, "written by the maintenance window session");
+  };
+  await assert.rejects(storage.prepareStorage(value.roots.data, false), (error) => error === exitSignal);
+  assert.equal(await readFile(leveldb, "utf8"), "leveldb log");
+  assert.deepEqual(harness.paths[0], ["sessionData", join(maintenanceTemp, `pi-desktop-storage-${id}`)]);
 });
 
 test("bootstrap refuses missing custom storage without silently creating an empty profile", { timeout: 60_000 }, async (t) => {

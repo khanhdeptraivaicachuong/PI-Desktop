@@ -1,3 +1,4 @@
+import { parseMcpServerIds, parseMcpToolNames } from "./mcp-tool-selection.js";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +20,7 @@ const pluginTools: PluginToolDef[] = ["plugin_alpha", "plugin_beta"].map((name) 
 }));
 type Payload = { tools: { function: { name: string } }[]; messages: { role: string; content?: unknown }[] };
 type Call = { name: string; args?: Record<string, unknown> };
-async function wireFixture(calls: Call[]) {
+async function wireFixture(calls: Call[], beforeReply?: () => Promise<void>) {
   const requests: Payload[] = [];
   const fetch = globalThis.fetch;
   const server = createServer(async (req, res) => {
@@ -27,6 +28,7 @@ async function wireFixture(calls: Call[]) {
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     requests.push(JSON.parse(Buffer.concat(chunks).toString()));
     const call = calls.shift();
+    await beforeReply?.();
     const delta = call ? { role: "assistant", tool_calls: [{ index: 0, id: randomUUID(),
       type: "function", function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } }] }
       : { role: "assistant", content: "Done." };
@@ -42,12 +44,12 @@ async function wireFixture(calls: Call[]) {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   } };
 }
-function runtimeFixture(history: UiMessage[] = [], tools = pluginTools, provider = flashProvider(), denied = false) {
+function runtimeFixture(history: UiMessage[] = [], tools = pluginTools, provider = flashProvider(), denied = false, mode: "agent" | "plan" = "agent") {
   const rows = structuredClone(history);
   const executed: string[] = [];
   const errors: unknown[] = [];
   const runtime = new DesktopAgentRuntime({
-    sessionId: "fixed-tools", mode: "agent", provider, thinkingLevel: "off", history: rows, pluginTools: tools,
+    sessionId: "fixed-tools", mode, provider, thinkingLevel: "off", history: rows, pluginTools: tools,
     commandShell: { id: "bash", label: "Bash", dialect: "posix", available: true, isDefault: true },
     host: { call: async <T>(method: string, params?: unknown): Promise<T> => {
       if (method === "session.appendMessage") rows.push((params as { message: UiMessage }).message);
@@ -212,5 +214,178 @@ describe("fixed Flash declarations through runtime and HTTP/SSE", () => {
         expect(wire.requests[index].messages.slice(0, previous.length)).toEqual(previous);
       }
     } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+});
+
+describe("explicit MCP selection", () => {
+  const selectedTools: PluginToolDef[] = Array.from({ length: 6 }, (_, i) => ({
+    name: `mcp_chosen_probe_${i}`, mcpServerId: "chosen",
+    description: "Read-only MCP probe", parameters: { type: "object", properties: {}, required: [] }, risk: "low",
+  }));
+  const otherTool: PluginToolDef = {
+    ...selectedTools[0], name: "mcp_chosen_similar_probe", mcpServerId: "chosen-similar",
+  };
+  it.each([false, true])("activates every selected-server tool before the first request (fixed=%s)", async (fixed) => {
+    const wire = await wireFixture([{ name: selectedTools[5].name }, { name: otherTool.name }]);
+    const provider = fixed ? flashProvider() : { ...flashProvider(), baseUrl: "https://relay.invalid/v1" };
+    const f = runtimeFixture([], [...selectedTools, otherTool], provider);
+    try {
+      await f.runtime.prompt({ text: "Read the selected probe", mcpServerIds: ["chosen"] }, "selected-user");
+      expect(f.errors).toEqual([]);
+      expect(f.executed).toEqual([selectedTools[5].name]);
+      const names = wire.requests[0].tools.map(t => t.function.name);
+      for (const tool of selectedTools) expect(names).toContain(tool.name);
+      if (!fixed) expect(names).not.toContain(otherTool.name);
+      expect(f.rows.some(row => row.toolName === "ToolSearch")).toBe(false);
+      expect(f.rows.find(row => row.toolName === otherTool.name)).toMatchObject({ isError: true });
+      wire.requests.length = 0;
+      await f.runtime.prompt("Continue", "next-user");
+      for (const tool of selectedTools) expect(wire.requests[0].tools.map(t => t.function.name)).toContain(tool.name);
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it.each([false, true])("activates only the requested tool from the selected server (fixed=%s)", async (fixed) => {
+    const wire = await wireFixture([{ name: selectedTools[5].name }, { name: selectedTools[0].name }]);
+    const provider = fixed ? flashProvider() : { ...flashProvider(), baseUrl: "https://relay.invalid/v1" };
+    const f = runtimeFixture([], [...selectedTools, otherTool], provider);
+    try {
+      await f.runtime.prompt({ text: "Read", mcpServerIds: ["chosen"], mcpToolNames: [selectedTools[5].name] });
+      expect(f.executed).toEqual([selectedTools[5].name]);
+      const names = wire.requests[0].tools.map(t => t.function.name);
+      expect(names).toContain(selectedTools[5].name);
+      if (!fixed) expect(names).not.toContain(selectedTools[0].name);
+      expect(f.rows.find(row => row.toolName === selectedTools[0].name)).toMatchObject({ isError: true });
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it.each(["missing", "mcp_chosen_similar_probe"])("rejects an unavailable or differently owned tool: %s", async (name) => {
+    const wire = await wireFixture([]);
+    const f = runtimeFixture([], [...selectedTools, otherTool]);
+    try {
+      await expect(f.runtime.prompt({ text: "Read", mcpServerIds: ["chosen"], mcpToolNames: [name] })).rejects.toMatchObject({ errorCode: "COMPOSER_MCP_UNAVAILABLE" });
+      expect(wire.requests).toHaveLength(0);
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it("does not activate an unknown server or send a provider request", async () => {
+    const wire = await wireFixture([]);
+    const f = runtimeFixture([], selectedTools);
+    try {
+      await expect(f.runtime.prompt({ text: "Read", mcpServerIds: ["missing"] })).rejects.toMatchObject({ errorCode: "COMPOSER_MCP_UNAVAILABLE" });
+      expect(wire.requests).toHaveLength(0);
+      expect(f.executed).toEqual([]);
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it("selected tools still require Host permission", async () => {
+    const wire = await wireFixture([{ name: selectedTools[0].name }]);
+    const f = runtimeFixture([], selectedTools, flashProvider(), true);
+    try {
+      await f.runtime.prompt({ text: "Read", mcpServerIds: ["chosen"] });
+      expect(f.rows.find(row => row.toolName === selectedTools[0].name)).toMatchObject({ isError: true });
+      expect(JSON.stringify(wire.requests.at(-1)?.messages)).toContain("Permission denied");
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it("cannot expose selected MCP tools in Plan mode", async () => {
+    const wire = await wireFixture([]);
+    const f = runtimeFixture([], selectedTools, flashProvider(), false, "plan");
+    try {
+      await expect(f.runtime.prompt({ text: "Read", mcpServerIds: ["chosen"] })).rejects.toMatchObject({ errorCode: "TOOL_DENIED" });
+      expect(wire.requests).toHaveLength(0);
+    } finally { await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it.each([false, true])("restores explicitly activated tools after a runtime restart (fixed=%s)", async (fixed) => {
+    const provider = { ...flashProvider(), ...(fixed ? {} : { baseUrl: "https://relay.invalid/v1" }) };
+    const wire = await wireFixture([]);
+    const f = runtimeFixture([], selectedTools, provider);
+    let history: UiMessage[] = [];
+    try {
+      await f.runtime.prompt({ text: "Read", mcpServerIds: ["chosen"] });
+      history = structuredClone(f.rows);
+    } finally { await f.runtime.dispose(); await wire.close(); }
+    const resumed = await wireFixture([{ name: selectedTools[5].name }]);
+    const restored = runtimeFixture(history, selectedTools, provider);
+    try {
+      await restored.prompt("resumed-user");
+      expect(restored.executed).toEqual([selectedTools[5].name]);
+    } finally { await restored.runtime.dispose(); await resumed.close(); }
+  });
+
+  it.each([false, true])("does not activate steering cancelled before consumption (specific=%s)", async (specific) => {
+    let arrived!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { arrived = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let first = true;
+    const wire = await wireFixture([], async () => {
+      if (!first) return;
+      first = false; arrived(); await gate;
+    });
+    const f = runtimeFixture([], selectedTools, { ...flashProvider(), baseUrl: "https://relay.invalid/v1" });
+    try {
+      const running = f.runtime.prompt("Wait", "user", "turn-cancel");
+      await ready;
+      f.runtime.steer({ text: "Use selected MCP", mcpServerIds: ["chosen"], ...(specific ? { mcpToolNames: [selectedTools[5].name] } : {}) }, "turn-cancel", {
+        id: "cancelled-steering", role: "user", content: "Use selected MCP", createdAt: new Date().toISOString(),
+      });
+      await f.runtime.abort();
+      release();
+      await running;
+      await f.runtime.prompt("New request");
+      expect(f.executed).toEqual([]);
+      expect(wire.requests.at(-1)?.tools.map(t => t.function.name)).not.toContain(selectedTools[5].name);
+    } finally { release(); await f.runtime.dispose(); await wire.close(); }
+  });
+
+  it.each([[false, false], [true, false], [false, true], [true, true]])("activates steering selections when the queued user message is consumed (fixed=%s, specific=%s)", async (fixed, specific) => {
+    let arrived!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { arrived = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let first = true;
+    const calls: Call[] = [];
+    const wire = await wireFixture(calls, async () => {
+      if (!first) return;
+      first = false; arrived(); await gate;
+    });
+    const f = runtimeFixture([], selectedTools, { ...flashProvider(), ...(fixed ? {} : { baseUrl: "https://relay.invalid/v1" }) });
+    try {
+      const running = f.runtime.prompt("Wait for followup", "user", "turn-steer");
+      await ready;
+      f.runtime.steer({ text: "Use selected MCP", mcpServerIds: ["chosen"], ...(specific ? { mcpToolNames: [selectedTools[5].name] } : {}) }, "turn-steer", {
+        id: "steering-user", role: "user", content: "Use selected MCP", createdAt: new Date().toISOString(),
+      });
+      if (!fixed) expect(wire.requests[0].tools.map(t => t.function.name)).not.toContain(selectedTools[5].name);
+      expect(f.executed).toEqual([]);
+      calls.push({ name: selectedTools[5].name }); release();
+      await running;
+      expect(f.errors).toEqual([]);
+      expect(wire.requests[1].tools.map(t => t.function.name)).toContain(selectedTools[5].name);
+      expect(f.executed).toEqual([selectedTools[5].name]);
+      if (specific && !fixed) expect(wire.requests[1].tools.map(t => t.function.name)).not.toContain(selectedTools[0].name);
+    } finally { release(); await f.runtime.dispose(); await wire.close(); }
+  });
+
+});
+
+describe("MCP selection boundary", () => {
+  it.each([null, "chosen", {}, [1], [""], [" "]])("rejects invalid selection %j", value => {
+    expect(() => parseMcpServerIds(value)).toThrow("Invalid MCP server selection");
+  });
+  it("preserves legacy absence and deduplicates exact IDs", () => {
+    expect(parseMcpServerIds(undefined)).toBeUndefined();
+    expect(parseMcpServerIds(["chosen", "chosen", "chosen-other"])).toEqual(["chosen", "chosen-other"]);
+  });
+});
+
+describe("MCP tool selection boundary", () => {
+  it.each([null, "search", [], [""], [1], [{}]])("rejects malformed tool selections: %j", value => {
+    expect(() => parseMcpToolNames(value)).toThrow("Invalid MCP tool selection");
+  });
+  it("preserves omitted selections and deduplicates exact names", () => {
+    expect(parseMcpToolNames(undefined)).toBeUndefined();
+    expect(parseMcpToolNames(["search", "search"])).toEqual(["search"]);
   });
 });

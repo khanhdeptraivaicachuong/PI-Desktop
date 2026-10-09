@@ -107,8 +107,7 @@ export async function transcriptLongHistoryProbe() {
   const originalDateNow = Date.now;
   const wallTime = Date.now();
   const originals = { getSession: api.getSession, listSessions: api.listSessions,
-    pendingPlans: api.pendingPlans, listQueuedPrompts: api.listQueuedPrompts, composerCommands: api.composerCommands,
-    summarizeSessionTitle: api.summarizeSessionTitle };
+    pendingPlans: api.pendingPlans, listQueuedPrompts: api.listQueuedPrompts, composerCommands: api.composerCommands };
   const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
   const sessions = [history(100), history(1000), history(10784)];
   const records = new Map(sessions.map((item) => [item.summary.id, item]));
@@ -177,11 +176,6 @@ export async function transcriptLongHistoryProbe() {
     api.pendingPlans = async () => ({ plans: [], state: "inactive" });
     api.listQueuedPrompts = async () => ({ entries: [] });
     api.composerCommands = async () => ({ commands: [] });
-    api.summarizeSessionTitle = async () => {
-      const error = new Error("Unexpected auto-title provider request in synthetic fixture");
-      errors.push(error);
-      throw error;
-    };
     Object.defineProperty(navigator, "clipboard", { configurable: true,
       value: { writeText: async (text: string) => { copied.push(text); } } });
     useAppStore.setState({
@@ -364,6 +358,20 @@ export async function transcriptLongHistoryProbe() {
         assert(useAppStore.getState().messages[1] === parent, "child update replaced its stable parent Task");
       }
     }
+    // Structural growth must reuse completed text too, not just same-row deltas.
+    await select(largest);
+    largest.reads.count = 0;
+    for (let index = 0; index < 3; index++) {
+      const id = `appended-long-history-tool-${index}`;
+      send(largest.summary.id, { type: "tool_start", toolCallId: id, toolName: "Read",
+        args: { path: `append-probe-${index}.txt` } });
+      await until(() => host.querySelector(`[data-message-id="${id}"]`) !== null, "appended tool row");
+      await settled();
+    }
+    assert(largest.reads.count === 0, `tool appends reread ${largest.reads.count} completed bodies`);
+    largest.messages = useAppStore.getState().messages;
+    await select(sessions[0]); await select(largest);
+    assert(host.querySelector('[data-message-id="appended-long-history-tool-2"]'), "switch lost appended tool");
     assert(reads.every((read) => read.limit === 100), "ordinary selection requested unbounded Host history");
     assert(errors.length === 0, `render errors: ${errors.map(String)}`);
     return { ok: true, workCounts, hostPageSize: 100, simultaneousRunningSessions: 3,

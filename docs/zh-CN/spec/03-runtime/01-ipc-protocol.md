@@ -21,7 +21,7 @@
 | `app` | 应用程序信息、健康检查 |
 | `agent` | 对话、中止、状态和交互式 Asktool 解决方案 |
 | `plan` | Plan 提案列出、决议和变更事件 |
-| `session` | 会话 CRUD/历史记录 |
+| `session` | 会话 CRUD/历史记录/标题元数据 |
 | `session collaboration` | 侧边栏投影使用的有界只读协作状态；变更仍通过已审查的插件网关完成 |
 | `settings` | 配置 read/write |
 | `secrets` | 秘密 write/delete/exists（绝不将明文返回到 UI 日志） |
@@ -186,6 +186,8 @@ Root 用户轮次可能包括 `revisionRootId`、`revisionCount` 和
  输入框
 附件可供性保持隐藏，直到 main、sidecar、pi 模型
 功能和持久性都会消耗有效负载。
+草稿内联命名过位置的图片会带上 `inlinePath`，运行时按它把图片块放回原位置，
+而不是统一追加在提示文本之后。
 
 ### 5.1a 向当前回合补充指令
 
@@ -811,8 +813,17 @@ type ToolTokenUsage = {
 
 type SessionDetail = SessionSummary & {
  messages: UiMessage[];
+  /** Authoritative metadata for SubmitPlan/SubmitGoal calls in this page. */
+  planHistory?: Array<{ proposal: PlanProposal; superseded: boolean }>;
 };
 ```
+
+历史读取仅为当前会话返回页中的 SubmitPlan/SubmitGoal 调用附加 `planHistory`。
+SQLite 提供真实审批状态、完整 Markdown 快照、文件路径及同类型的新版本替代标记，
+原始 JSONL 工具结果保持不变。显示截断不影响这些有提交大小限制的计划快照。
+该字段兼容旧主机和原生会话；分叉会话不复制审批记录，也不从工具结果或文件名推断状态。
+渲染器可将其投影到 `UiMessage.planHistory`，但不得将显示元数据写回模型证据。
+
 
 Electron 主进程用该会话精确 provider/API URL 与 model 的本地 models.dev
 记录，丰富 session list/get/create/fork/configure 结果中的有效推理能力。
@@ -857,8 +868,16 @@ ID、或会话无法解析出默认目标时，得到 `supportsReasoning: false`
 - `session/get`
 - `session/delete`
 - `session/rename`
+- `session/deriveTitle({ id, title }) -> { updated: boolean }` 应用确定性的首条提示兜底标题。
+  只有当存储标题仍是可识别的占位标题且标题来源为 `default` 时，host-core 才接受它；该写入
+  只改元数据，`updated_at`、转录内容与消息数都不变。派生标题会保留该来源，因此已安装的
+  标题插件仍可替换它；`session/rename` 仍是用户拥有的路径。
 - `session/importScan`
 - `session/importRun(candidates) -> { imported, skipped, failed }`
+
+`session/rename({ id, title })` 会裁剪标题并接受 1–80 个 Unicode 码点；空标题或
+超长标题返回 `INVALID_PARAMS`。成功重命名只更新会话元数据、不改活动时间，并将标题来源
+标为 `manual`，因此标题插件不能覆盖它。
 
 导入候选者携带 `projectPath: string | null` 与
 `messageCount: number | null`。扫描对每个源文件全量读取的上限为导入器的
@@ -916,8 +935,9 @@ Electron拥有本地化并提供面向用户的分支名称；主机
 转录本，但被排除在恢复的模型上下文之外。
 
 上下文检查器消耗两个附加使用信号。 `MessageUsage` 是
-提供商报告的助理使用情况，`responseDurationMs` 是已用时间
-sidecar 用于显示每秒输出令牌的流时间。 `ToolTokenUsage`
+提供商报告的助理使用情况，`responseDurationMs` 是用于显示每秒输出令牌的
+请求耗时。完整响应优先使用 pi-ai 1.1.0 的单调时钟
+`AssistantMessage.durationMs`；没有该值时仍使用 sidecar 秒表。 `ToolTokenUsage`
 是根据工具调用参数和结果估计的运行时间；提供商不
 报告每个工具的分配，因此渲染器将这些行标记为估计值并
 永远不会将它们合并到确切的提供商总数中。年长的同行可能会忽略所有
@@ -1851,7 +1871,7 @@ unchanged. See [provider configuration](12-provider-config-schema.md).
 
 ## 15. 云配置同步
 
-设置 → 云同步页面使用以下 Renderer-to-Main 通道；所有通道都会转发到 Host 所有的 `configSync.*` RPC 方法：
+设置 → 云同步页面使用以下 Renderer-to-Main 通道；所有通道都会转发到 Host 所有的 `configSync.*` RPC 方法。该页面当前仅在开发构建可见；通道与其 Host 契约不变：
 
 | IPC 通道 | Host 方法 | 契约 |
 |---|---|---|

@@ -140,7 +140,6 @@ const SESSION_MUTATION_IDS = new Set([
   "session/rename",
   "session/configure",
   "session/moveProject",
-  "session/summarizeTitle",
   "session/replaceMessages",
   "session/saveRevision",
   "session/activateRevision",
@@ -201,7 +200,6 @@ const CONTROL_OPERATION_SPECS: OperationSpec[] = [
   spec("agentInstructionsGet", "agent/instructions/get", "Read global or project AGENTS.md instructions.", "read", ["query"]),
   spec("agentInstructionsSave", "agent/instructions/save", "Write global or project AGENTS.md instructions.", "dangerous", ["input"]),
   spec("agentPrompt", "agent/prompt", "Send a prompt to a session's Agent.", "write", ["request"]),
-  spec("promptEnhance", "prompt/enhance", "Enhance a prompt using the configured model.", "write", ["request"]),
   spec("agentCompact", "agent/compact", "Compact an idle session context.", "write", ["request"]),
   spec("agentAbort", "agent/abort", "Abort an active Agent turn.", "write", ["request"]),
   spec("agentStop", "agent/stop", "Request a graceful Agent stop.", "write", ["request"]),
@@ -219,7 +217,6 @@ const CONTROL_OPERATION_SPECS: OperationSpec[] = [
   spec("sessionGetScratchPath", "session/getScratchPath", "Return a session scratch path.", "read", ["input"]),
   spec("sessionImportScan", "session/importScan", "Scan supported external session sources.", "read", []),
   spec("modelConfigImportScan", "modelConfig/importScan", "Scan supported model configuration sources.", "read", []),
-  spec("sessionSummarizeTitle", "session/summarizeTitle", "Generate a session title.", "write", ["request"]),
   spec("settingsGet", "settings/get", "Read application settings.", "read", []),
   spec("networkProxyTest", "network/testProxy", "Test a network proxy configuration.", "read", ["settings"]),
   spec("commandShellList", "commandShell/list", "List supported command shells.", "read", []),
@@ -471,6 +468,8 @@ export const MCP_CONTROL_BLOCKED_CHANNEL_KEYS = [
   "providersUpdate",
   "providersDelete",
   "providersTest",
+  // A key check spends a credential the control surface must not hold.
+  "jevTest",
   "providersOauthStart",
   "providersOauthRespond",
   "providersOauthCancel",
@@ -570,7 +569,28 @@ const COMPACTION_SCALAR_KEYS = [
 ] as const;
 
 /**
- * Bounds the `session/get` answer for the control plane (mocode #495).
+ * Keeps only the compact identity of one `ContextCompactionRecord`.
+ *
+ * `summary`, `retainedTail`, and `details.modifiedFiles` grow without bound and
+ * are not part of the tools contract, so they are dropped here.
+ */
+function projectCompactionRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const source = value as Record<string, unknown>;
+  const bounded: Record<string, unknown> = {};
+  for (const key of COMPACTION_SCALAR_KEYS) {
+    if (source[key] !== undefined) bounded[key] = source[key];
+  }
+  const details = source.details;
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const generation = (details as Record<string, unknown>).generation;
+    if (generation !== undefined) bounded.details = { generation };
+  }
+  return bounded;
+}
+
+/**
+ * Bounds the `session/get` answer for the control plane (mocode #495, #506).
  *
  * A durable session's `ContextCompactionRecord` (`summary` / `retainedTail` /
  * `details.modifiedFiles`) grows without bound: on a long session it alone can
@@ -584,27 +604,39 @@ const COMPACTION_SCALAR_KEYS = [
  * the retained tail, or the artifact list. Keep that whitelist and drop the
  * rest, so the transcript survives bounding. Non-`session/get` shapes and
  * sessions without a compaction record are returned untouched.
+ *
+ * `session.compaction` is only the NEWEST record; `session.compactions` is the
+ * unbounded history and every entry carries its own `summary` / `retainedTail` /
+ * `details.modifiedFiles`. Projecting the newest record alone was not enough:
+ * on a session compacted several times the history array alone still exceeded
+ * the limit, so the answer stayed a truncation envelope and shrinking the
+ * transcript page could not help (the overflow was independent of
+ * `messageLimit` / `contentLimit`). Project every entry in the history too.
  */
 export function projectSessionGetResult(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const root = value as Record<string, unknown>;
   const session = root.session;
   if (!session || typeof session !== "object" || Array.isArray(session)) return value;
-  const compaction = (session as Record<string, unknown>).compaction;
-  if (!compaction || typeof compaction !== "object" || Array.isArray(compaction)) return value;
+  const source = session as Record<string, unknown>;
 
-  const source = compaction as Record<string, unknown>;
-  const bounded: Record<string, unknown> = {};
-  for (const key of COMPACTION_SCALAR_KEYS) {
-    if (source[key] !== undefined) bounded[key] = source[key];
-  }
-  const details = source.details;
-  if (details && typeof details === "object" && !Array.isArray(details)) {
-    const generation = (details as Record<string, unknown>).generation;
-    if (generation !== undefined) bounded.details = { generation };
+  let projected: Record<string, unknown> | undefined;
+
+  const compaction = source.compaction;
+  if (compaction && typeof compaction === "object" && !Array.isArray(compaction)) {
+    projected = { ...source, compaction: projectCompactionRecord(compaction) };
   }
 
-  return { ...root, session: { ...(session as Record<string, unknown>), compaction: bounded } };
+  const compactions = source.compactions;
+  if (Array.isArray(compactions)) {
+    projected = {
+      ...(projected ?? source),
+      compactions: compactions.map(projectCompactionRecord),
+    };
+  }
+
+  if (!projected) return value;
+  return { ...root, session: projected };
 }
 
 function errorInfo(error: unknown): { code: string; message: string; details?: unknown } {

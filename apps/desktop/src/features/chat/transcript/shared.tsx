@@ -19,6 +19,7 @@ import {
 import { useOpenChatFileRef, useOpenPreviewTarget } from "../../../hooks/use-preview-target";
 import { useChatFileMenu } from "../../../hooks/use-chat-file-menu";
 import { ContextMenu } from "../../../components/ContextMenu";
+import { ImageHoverCard, type ImageHoverAnchor } from "../../../components/ImageHoverCard";
 import { useDisclosureAnchorNotifier } from "../../../lib/disclosure-anchor-context";
 import { isThinkingActive, resolveThinkingDisplayMode } from "../../../lib/turn-process";
 import { TranscriptSearchContext } from "../../../lib/transcript-search-context";
@@ -466,11 +467,14 @@ export function FileRefChip({
 }
 
 /**
- * A referenced conversation on a user message (issue #1324). The draft carried
- * a `pi-desktop://session/<id>` link; main attached a bounded excerpt for the
- * model and this chip is how the reader sees and reopens it.
+ * A referenced conversation as a chip. The draft carried a
+ * `pi-desktop://session/<id>` link; main attached a bounded excerpt for the
+ * model, and this chip is how the reader sees and reopens it.
  */
-export function SessionRefChip({ attachment }: { attachment: MessageAttachment }) {
+function SessionChip({ sessionId, fallbackName, ...position }: {
+  sessionId: string;
+  fallbackName: string;
+} & SourcePositionProps) {
   const { t } = useTranslation();
   const selectSession = useAppStore((state) => state.selectSession);
   // The chip names a conversation, not the name that conversation carried when
@@ -479,74 +483,110 @@ export function SessionRefChip({ attachment }: { attachment: MessageAttachment }
   // model block quotes, and it stays the fallback for a conversation this
   // viewer no longer lists.
   const liveTitle = useAppStore(
-    (state) => state.sessions.find((session) => session.id === attachment.ref)?.title,
+    (state) => state.sessions.find((session) => session.id === sessionId)?.title,
   );
-  const name = (liveTitle ?? "").trim() || attachment.name;
+  const name = (liveTitle ?? "").trim() || fallbackName;
   const label = `${t("chat.sessionReference")} · ${name}`;
+  const open = () => void selectSession(sessionId).catch(() => undefined);
+  // This chip carries a conversation title, so it can be wider than whatever
+  // space a line has left. Chromium never fragments a `<button>` across lines:
+  // as one it is pushed whole onto the next line and the rest of the line it
+  // left stays blank. The button role and its keyboard behaviour therefore sit
+  // on a span, which the message stylesheet lays out as an inline run that
+  // breaks with the text.
   return (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={0}
       className="composer-chip chat-file-chip"
+      {...position}
       data-action="open-session-reference"
-      data-session-id={attachment.ref}
+      data-session-id={sessionId}
       title={t("chat.sessionReferenceOpen", { title: name })}
       aria-label={label}
-      onClick={() => void selectSession(attachment.ref).catch(() => undefined)}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        open();
+      }}
     >
       <span className="composer-chip-icon" aria-hidden>
         <IconChat size={13} />
       </span>
       <span className="composer-chip-name">{label}</span>
-    </button>
+    </span>
+  );
+}
+
+/** A bare `pi-desktop://session/<id>` link in prose, rendered as that chip. */
+export function SessionLinkChip({ sessionId, ...position }: { sessionId: string } & SourcePositionProps) {
+  return (
+    <SessionChip sessionId={sessionId} fallbackName={sessionId.slice(0, 8)} {...position} />
   );
 }
 
 /**
- * User-message image attachment as a thumbnail. The host resolves the ref
- * into a bounded data URL; an unresolvable load falls back to the file chip.
- * Clicking opens the files viewer on the same contained ref.
+ * User-message image attachment as the same compact chip as any other file
+ * reference. The host resolves the ref into a bounded data URL that the hover
+ * (or focus) card shows; an unresolved load simply keeps the chip. Clicking
+ * opens the files viewer on the same contained ref.
  */
 export function MessageAttachmentImage({
   attachment,
   onOpenFile,
+  inline = false,
 }: {
   attachment: MessageAttachment;
   onOpenFile: (path: string, baseDir?: string, mimeType?: string) => void;
+  /** Inline placement inside the message prose; only the trailing list has a list parent. */
+  inline?: boolean;
 }) {
-  const { fileMenu, openFileMenu, closeFileMenu } = useChatFileMenu();
   const dataUrl = useReferencedImageDataUrl(attachment.ref, attachment.mimeType);
-  if (!dataUrl) {
-    return (
-      <FileRefChip
-        name={attachment.name}
-        path={attachment.ref}
-        kind="image"
-        mimeType={attachment.mimeType}
-        onOpen={onOpenFile}
-      />
-    );
-  }
+  const [anchor, setAnchor] = useState<ImageHoverAnchor | null>(null);
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const reveal = () => {
+    const element = chipRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    setAnchor({ left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width });
+  };
+  const dismiss = () => setAnchor(null);
   return (
     <>
-      <button
-        type="button"
-        className="message-attachment-image"
-        role="listitem"
-        title={`${attachment.name} — ${attachment.ref}`}
-        onClick={() =>
-          useAppStore.getState().openFileInWorkPanel(attachment.ref, attachment.mimeType)
-        }
-        onContextMenu={(event) => openFileMenu(event, { path: attachment.ref })}
+      <span
+        ref={chipRef}
+        className="message-attachment-image-chip"
+        role={inline ? undefined : "listitem"}
+        onPointerEnter={reveal}
+        onPointerLeave={dismiss}
+        onFocus={reveal}
+        onBlur={dismiss}
       >
-        <img src={dataUrl} alt={attachment.name} />
-      </button>
-      <ContextMenu state={fileMenu} onClose={closeFileMenu} />
+        <FileRefChip
+          name={attachment.name}
+          path={attachment.ref}
+          kind="image"
+          mimeType={attachment.mimeType}
+          onOpen={onOpenFile}
+        />
+      </span>
+      <ImageHoverCard src={dataUrl} anchor={anchor} onDismiss={dismiss} />
     </>
   );
 }
 
 /** Plain user text: @paths become composer-like chips; URLs stay text links. */
-export function LinkifiedText({ text, attachments }: { text: string; attachments?: readonly MessageAttachment[] }) {
+export function LinkifiedText({
+  text,
+  attachments,
+  sourceOffset = 0,
+}: {
+  text: string;
+  attachments?: readonly MessageAttachment[];
+  /** Where this run starts in the message content, so offsets stay absolute. */
+  sourceOffset?: number;
+}) {
   const { t } = useTranslation();
   const openTarget = useOpenPreviewTarget();
   const openFileRef = useOpenChatFileRef();
@@ -555,9 +595,9 @@ export function LinkifiedText({ text, attachments }: { text: string; attachments
   return (
     <>
       {segments.map((segment, index) => {
-        const start = offset;
+        const start = sourceOffset + offset;
         offset += segment.text.length;
-        const position = { "data-source-start": start, "data-source-end": offset };
+        const position = { "data-source-start": start, "data-source-end": sourceOffset + offset };
         return segment.kind === "text" ? (
           <span key={index} {...position}>{segment.text}</span>
         ) : segment.target.kind === "file" ? (
@@ -570,6 +610,8 @@ export function LinkifiedText({ text, attachments }: { text: string; attachments
             onOpen={openFileRef}
             {...position}
           />
+        ) : segment.target.kind === "session" ? (
+          <SessionLinkChip key={index} sessionId={segment.target.sessionId} {...position} />
         ) : (
           <TooltipButton
             key={index}

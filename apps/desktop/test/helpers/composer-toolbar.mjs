@@ -31,20 +31,19 @@ export const TOOLBAR_PROPS = {
   modelMenu: {
     open: false,
     setOpen: noop,
-    view: "root",
+    otherModelsExpanded: false, setOtherModelsExpanded: noop, hasOtherModels: false,
     query: "",
     setQuery: noop,
     modelHighlight: -1,
     setModelHighlight: noop,
     thinkingHighlight: -1,
     setThinkingHighlight: noop,
-    rootMenuRef: { current: null },
     modelSearchRef: { current: null },
     modelListRef: { current: null },
     thinkingListRef: { current: null },
     modelGroups: [],
+    recentEntries: [],
     thinkingMenuLevels: [],
-    showView: noop,
     selectModel: noop,
     commitThinkingLevel: noop,
     selectThinkingLevel: noop,
@@ -53,15 +52,14 @@ export const TOOLBAR_PROPS = {
   modelLabel: "Model",
   thinkingLabel: "Off",
   contextUsage: { usage: USAGE, turnUsage: USAGE, contextWindow: 200_000, tools: [] },
-  enhancementDraft: "",
   value: "",
   modelReady: true,
   sendBlocked: false,
-  enhancingPrompt: false,
-  enhancementUndoText: null,
-  enhancePrompt: idle,
-  undoPromptEnhancement: noop,
-  clearEnhancementError: noop,
+  composerTransforms: [],
+  activeTransformKey: null,
+  undoTransform: null,
+  runComposerTransform: idle,
+  undoComposerTransform: noop,
   runActive: false,
   hasDraftContent: false,
   abort: idle,
@@ -69,7 +67,7 @@ export const TOOLBAR_PROPS = {
 };
 
 /** A `() => html` of the toolbar, for a `slotSsr` harness. */
-export async function composerToolbar(t, ssr) {
+export async function composerToolbar(t, ssr, overrides = {}) {
   const hadWindow = "window" in globalThis;
   const { window } = globalThis;
   // The toolbar reads the shortcut platform off the preload bridge; the
@@ -86,5 +84,8 @@ export async function composerToolbar(t, ssr) {
     else delete globalThis.window;
   });
   const { ComposerToolbar } = await ssr.load("/src/features/chat/composer/ComposerToolbar.tsx");
-  return () => ssr.render(createElement(ComposerToolbar, TOOLBAR_PROPS), { sessionId: null });
+  return () =>
+    ssr.render(createElement(ComposerToolbar, { ...TOOLBAR_PROPS, ...overrides }), {
+      sessionId: null,
+    });
 }

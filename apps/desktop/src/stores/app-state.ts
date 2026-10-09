@@ -1,3 +1,4 @@
+import type { RecentModel } from "../lib/recent-models";
 import type {
   AgentEventEnvelope,
   BrowserState,
@@ -153,6 +154,8 @@ export type AppState = {
   /** Every checkpoint a session has installed, oldest first. */
   sessionCompactions: Record<string, (ContextCompactionMark & { summary?: string })[]>;
   providers: ProviderPublic[];
+  recentModels: RecentModel[];
+  rememberModel: (model: { providerId?: string; modelId?: string }) => void;
   /** Discovered model lists per provider id (composer model menu). */
   providerModels: Record<string, ModelInfo[]>;
   workspace?: ProjectWorkspace | null;

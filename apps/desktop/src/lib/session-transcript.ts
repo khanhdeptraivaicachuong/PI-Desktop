@@ -1,4 +1,6 @@
+import { preservePlanHistory } from "./plan-history";
 import type { AgentEvent, MessageAttachment, UiMessage } from "@pi-desktop/shared";
+import { formatPromptPathText, locateInlinePromptPaths } from "@pi-desktop/shared";
 import {
   getSessionMessageSnapshot,
   registerSessionMessageAppend,
@@ -9,7 +11,7 @@ import {
 type OptimisticFileReference = {
   path: string;
   name: string;
-  kind?: "image" | "file";
+  kind?: "image" | "file" | "session";
   mimeType?: string;
   /** Large-text paste tokens travel inline in the text, not as attachments. */
   token?: string;
@@ -17,6 +19,7 @@ type OptimisticFileReference = {
 
 const OPTIMISTIC_USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_OPTIMISTIC_ECHO_DELAY_MS = 30_000;
+const IMAGE_PATH_PATTERN = /\.(avif|bmp|gif|heic|jpe?g|png|tiff?|webp)$/i;
 
 /**
  * The user row shown the moment a prompt is sent, before the host has
@@ -30,18 +33,26 @@ export function optimisticUserMessage(
   fileReferences: readonly OptimisticFileReference[] = [],
   createdAt: string = new Date().toISOString(),
 ): UiMessage {
-  const attachments: MessageAttachment[] = fileReferences
-    .filter((reference) => !reference.token)
-    .map((reference) => ({
-      kind:
-        reference.kind ??
-        (/\.(avif|bmp|gif|heic|jpe?g|png|tiff?|webp)$/i.test(reference.path)
-          ? "image"
-          : "file"),
-      name: reference.name,
-      ref: reference.path,
-      ...(reference.mimeType ? { mimeType: reference.mimeType } : {}),
-    }));
+  // A plain file chip travels as `@path` text and needs no attachment row, but
+  // an image chip is one: it also records where its path sits, so the row shows
+  // the image in place before the durable echo arrives (D288).
+  const rendered = fileReferences.flatMap((reference) => {
+    const kind =
+      reference.kind ??
+      (IMAGE_PATH_PATTERN.test(reference.path) ? ("image" as const) : ("file" as const));
+    return reference.token && kind !== "image" ? [] : [{ reference, kind }];
+  });
+  const spans = locateInlinePromptPaths(
+    content,
+    rendered.map(({ reference }) => reference.path),
+  );
+  const attachments: MessageAttachment[] = rendered.map(({ reference, kind }, index) => ({
+    kind,
+    name: reference.name,
+    ref: reference.path,
+    ...(reference.mimeType ? { mimeType: reference.mimeType } : {}),
+    ...(spans[index] ? { inlinePath: formatPromptPathText(reference.path) } : {}),
+  }));
   return {
     id,
     role: "user",
@@ -129,7 +140,7 @@ export function upsertLiveSessionMessage(
   if (index === undefined) return registerSessionMessageAppend(normalized, [...normalized, message]);
   if (normalized[index] === message) return normalized;
   const next = normalized.slice();
-  next[index] = message;
+  next[index] = preservePlanHistory(message, normalized[index]);
   return registerSessionMessageReplacement(normalized, next, index);
 }
 
@@ -274,7 +285,7 @@ export function mergeLiveSessionMessages(
     const liveIndex = liveIndexById.get(durableMessage.id);
     const live =
       liveIndex === undefined ? undefined : liveNormalized[liveIndex];
-    push(live && isInFlightMessage(live) ? live : durableMessage);
+    push(preservePlanHistory(live && isInFlightMessage(live) ? live : durableMessage, live));
     // Live-only rows between two durable ids belong in the overlap. Trailing
     // rows after the last shared id wait until the durable page is complete
     // so a not-yet-cached user echo stays ahead of the streaming tail.

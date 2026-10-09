@@ -1,7 +1,7 @@
 # Decisions Log
 
-> Baseline delta: `0.3.0` → `0.4.20`
-> Date: `2026-10-02`
+> Baseline delta: `0.3.0` → `0.4.22`
+> Date: `2026-10-08`
 > Status: Accepted for implementation
 
 This log freezes previously open questions into concrete decisions.
@@ -31,12 +31,23 @@ This log freezes previously open questions into concrete decisions.
 | D634 | Remove bundled macOS first-launch guidance | **Amend D457 / ADR 0296 and the macOS distribution provisions of ADR 0232 / ADR 0204: neither macOS DMG nor ZIP ships `PI-Desktop-macOS-open.command`, `PI-Desktop-macOS-opening-help.txt`, or another bundled quarantine-clearing helper or opening note. The ZIP contains `PI-Desktop.app` at its root; the DMG remains a two-icon install. This applies to signed releases and local or opt-in unsigned debug builds. See ADR 0309 and E2E-196b.** | The signed release lane has eliminated the user need for an unsigned first-launch workaround; shipping it beside debug builds risks suggesting a Gatekeeper bypass. |
 | D635 | Work-area-capped 800×560 window minimum | **Supersede the 1040×700 window minimum in D156 / D447 (and the matching clauses of ADR 0029 / ADR 0238) and the `1040..10000` `window/setWorkPanelChatWidth` range (ADR 0146): Electron enforces an 800×560 minimum, capped per dimension to the current display work area by `clampMinimumSizeToWorkArea`. The chat-width IPC and renderer accept `800..10000`. On narrow windows the existing `workPanelLayout` budget caps the docked panel so MainChat keeps its 450px floor, collapsing the sidebar first. See US-UI-19 and E2E-167.** | At 150% Windows scaling the work area is about 1280×672 DIP, so a fixed minimum could exceed the screen and leave the window unfittable. |
 | D636 | Local permission approvals have no automatic deadline | **Amend D005 / ADR 0011 and supersede the local tool-permission timeout clauses in the runtime and UX specs: a permission-gated `tools.execute` request remains pending in host-core, the renderer, and the transport until the user chooses Allow once, Allow for session, or Deny, or the request is cancelled / the process shuts down. Remove the 120-second countdown and timeout fields from the local permission contract. Tool-specific execution budgets and the separate RACP/Plan approval lifetimes remain unchanged. See ADR 0310, issue #1214, and E2E-017.** | A visible permission request could be missed while the user worked elsewhere; automatic denial after 120 seconds silently prevented the requested action. Keeping cancellation and execution budgets preserves control and resource safety without turning inattention into a decision. |
-| D637 | Remove the Windows frameless resize rim | **Disable the Windows main window's thick frame while retaining Electron 43.6 native frameless edge and corner resizing. Apply a 4 DIP native rounded shape by default; authorized plugin themes may choose an integer radius from 0 to 24 DIP. Keep the D635 minimum-size contract and existing work-panel resize ownership. See ADR 0317 and E2E-167.** | The thick frame paints an unwanted left, bottom, and right rim that themes cannot remove. Native hit testing and shape keep resizing and transparent outer corners without renderer resize IPC. |
+| D637 | Remove the Windows frameless resize rim | **Disable the Windows main window's thick frame while retaining Electron 43.6 native frameless edge and corner resizing. Use the global `--radius-md` token (12 DIP) for the default native rounded shape; authorized plugin themes may choose an integer radius from 0 to 24 DIP. Keep the D635 minimum-size contract and existing work-panel resize ownership. See ADR 0317 and E2E-167.** | The thick frame paints an unwanted left, bottom, and right rim that themes cannot remove. Native hit testing and shape keep resizing and transparent outer corners without renderer resize IPC. The former 4 DIP cutout was nearly square and did not match the global radius scale. |
 | D638 | Publish native Linux arm64 artifacts | **Amend D126 / D285 / D603 / ADR 0022: tag releases publish native Linux arm64 AppImage, deb, and rpm packages, built on GitHub's native `ubuntu-22.04-arm` runner and carrying an arm64 `pi-desktop-host-core`. The static Linux targets drop their pinned `arch` and take the workflow's `--x64` / `--arm64` flag; `linux.artifactName` becomes `PI-Desktop-<version>-linux-<arch>.AppImage`; each Linux lane verifies its architecture-named updater feed (`latest-linux.yml` on x64, `latest-linux-arm64.yml` on arm64); the ASAR export reads `linux-unpacked` or `linux-arm64-unpacked` and publishes `PI-Desktop-<version>-linux-<arch>.asar`. `pi-host-bundle` builds both Linux architectures and `PUBLISHED_TARGETS` gains `linux-arm64`. Updater ownership, signing, and delivery modes are unchanged. See ADR 0318, issue #1281, and E2E-192a.** | arm64 Linux devices could not install or run the published x64 artifact, and a cross-built or emulated lane would ship a mismatched Rust sidecar. |
 | D639 | models.dev owns published chat-model metadata | **Supersede D136 / D266 and ADR `pi-ai-core-0991-authority` for chat metadata: the bundled and explicitly refreshed models.dev catalog supplies published chat-model limits, modalities, reasoning metadata, names, and prices. Prefer the selected official publisher; when it has no record, accept another publisher only for a safe, unambiguous match, otherwise keep generic metadata. The checked-in preset identities are the priority set; do not assert an unsupported fixed count of 39. Live endpoint/OAuth discovery still owns selectable IDs. Pi remains responsible for OAuth, wire identity, transport and typed non-chat operations, but never supplies sibling chat limits, reasoning or prices. Explicit user binding overrides remain authoritative. No credentials are sent to models.dev; no host schema/protocol or persistence change. See ADR `models-dev-catalog-authority` and E2E-162 / E2E-MODEL-catalog-window-correction-reaches-saved-bindings.** | A Pi sibling default assigned a 272,000-token window to GPT models whose selected models.dev records publish 1,050,000 tokens, changing the Settings display and runtime context budget. |
 | D640 | User MCP tools keep the normal approval path | **`mcp_<serverId>_<tool>` calls are `medium` risk in host-core: under `ask` and `accept-edits` each call shows the approval card ("MCP server tool requires approval"), allow-once and allow-session keep their usual scope (one call / that exact tool name in that session), `auto` runs without a card, and Plan/Goal still deny. Annotations or risk values the MCP server declares about its own tools are ignored and never lower the path. Dispatch, read-only-mode handling and the `mcp_` namespace are unchanged; no host protocol or persistence change. See ADR `mcp-tool-approval-risk` and E2E-MCP-tool-requires-approval.** | MCP tools were auto-allowed as `low` risk, so a configured server could write files, call networks or run commands without any prompt under `ask`. Configuring a server is consent to launch it, not to every action its opaque tools take. |
 | D641 | Custom endpoint API style precedence | **A custom endpoint uses the saved provider-row `apiStyle` ahead of a model catalog's adapter API. Named and OAuth providers can continue to use a model-level wire API pin where their published configuration requires a different transport. This keeps a user's explicit endpoint choice stable without removing model-specific routing such as OpenCode Go Responses models. No persisted format or protocol change. See E2E-005E and issue #1313.** | A publisher's adapter default must not silently redirect a custom gateway whose user-selected API format is different. |
+| D642 | Cloud sync is a public Experimental destination *(amended by D643)* | **Remove the developer-mode and packaged-build gates from the Settings `sync` destination: its rail row, page, and settings-search hits exist for every user in every build, and a saved `sync` tab no longer falls back to General. Remote Hosts keeps both gates and its own badge. The destination keeps its Experimental badge on the rail row and page title; sync behavior, protocol, host schema, and persisted data are unchanged. See `04-ux/06-settings-ia.md` and E2E-CONFIG-SYNC-webdav-portable-configuration.** | Encrypted WebDAV backup is the app's only multi-device configuration path, and a developer-mode gate left it undiscoverable for the users who need it. |
+| D643 | Cloud sync ships without an Experimental badge *(amended by D649)* | **Amend D642: the Settings `sync` destination drops `experimentalBadgeKey`, and `settings.configSync.experimental` is removed from every bundled locale. Cloud sync stays available to every user in every build. Remote Hosts keeps its own badge and both gates. Sync behavior, protocol, host schema, and persisted data are unchanged. See `04-ux/06-settings-ia.md` and E2E-CONFIG-SYNC-webdav-portable-configuration.** | Cloud sync is the app's shipped multi-device path, so an Experimental label no longer described it and only made the destination look unfinished. |
+| D644 | Portable instruction files have no size cap | **Remove the 32 KiB per-file cap Host enforced on portable instruction files. Global and project instruction content is bounded only by the same portable-entity payload bound every other domain already has, checked when a revision is uploaded and when a remote one is validated. UTF-8 validation, symlink rejection, scope selection, mapping, and approval rules are unchanged. See `03-runtime/22-config-sync.md` §2.** | A 33 KiB project `AGENTS.md` failed the entire capture with `CONFIG_SYNC_LIMIT_EXCEEDED: instruction file is too large`, which the Settings page could only show as a generic backup-size error. |
 | D450 | Signed macOS GitHub Releases | **Amend D078 / ADR 0022: GitHub tag releases Developer ID-sign, notarize (`notarytool` via electron-builder 26), staple, and Gatekeeper-verify macOS DMG/ZIP before upload, using identity `Developer ID Application: XingYu Liu (DUV63RKYTW)` / team `DUV63RKYTW` from Actions secrets (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`). Missing secrets fail the job. Local unsigned packaging without a certificate remains. `workflow_dispatch` may set `sign_macos: false` only for unsigned debug artifacts. Packaged macOS uses in-app `electron-updater` (ZIP + merged `latest-mac.yml`); Linux deb/rpm and Windows portable ZIP stay notify-and-link. No afterPack/afterSign adhoc codesign (ADR 0278).** | Production DMGs must open without a Gatekeeper warning, and signed macOS installs can download and restart into a new tag. See ADR 0289, E2E-196c, E2E-067A. |
+
+| D648 | Skill Market pins an acceptable address for mixed direct DNS answers | **Amend ADR 0272: on a direct route, when DNS includes both rejected and acceptable answers, Skill Market selects and pins one acceptable address instead of letting Chromium choose among them. Third-party content prefers a public answer; the benchmark fake-IP is eligible only under the existing opt-in. ULA-only and other non-public-only answers remain blocked. Proxied and unreadable routes keep the existing policy. See ADR 0321 and E2E-SKILL-MARKET-NET-BOUNDARY.** | Dual-stack and transparent-proxy DNS can include an unused synthetic ULA answer beside an address the request can safely use; pinning prevents the rejected address from being dialed while avoiding the false refusal. |
+| D649 | Cloud backup stays closed to users | **Amend D642 / D643: the Settings `sync` destination carries `developmentOnly: true` again, so a packaged build omits its rail row, page, and settings-search hits and falls back to General, while development builds keep it. Developer mode stays irrelevant to the destination and it still carries no Experimental badge. Sync behavior, protocol, host schema, and persisted data are unchanged; dropping the flag reopens it for packaged builds. See `04-ux/06-settings-ia.md` and E2E-CONFIG-SYNC-webdav-portable-configuration.** | The encrypted WebDAV backup is not ready to be offered to packaged-build users yet, so it stays implemented but out of the way until it opens. |
+| D650 | Plugin providers appear in Add Service | **Amend ADR 0259: optional `category` groups manifest-owned provider rows; optional localized `description` supplies one-sentence hover/focus copy. Loaded plugins with `provider.register` contribute unconfigured API-key providers with endpoints. Tiles display provider names only; the Host saves keys through the existing provider secret path. There is no per-plugin provider-count cap. An empty model list is allowed only for an API-key provider with a base URL; after explicit key save, Host discovery populates its cached model choices. Configured rows remain in the provider list and leave the chooser. OAuth / no-auth rows are omitted; no new permission, runtime plugin API, provider row, or credential migration is added. See ADR 0322, `07-plugins/02-plugin-manifest-schema.md`, and E2E-PLUGIN-provider-catalog-add-service.** | Users could not discover manifest-owned community providers in the normal Add Service flow, and each plugin needed to group its own sites without owning credential UI. |
+| D651 | Transcript tool rows never auto-open | **Amend the leaf auto-open provision of the turn-process / thinking-display decisions and ADR `turn-process-and-thinking-display`: a tool-call, hosted-search or plan row keeps its payload collapsed in both display modes and only an explicit user action opens it, including the literal final item of the last activity group. Whole-process and ordinary-group defaults, failed/denied behavior, retained per-item choices, and the thinking row's own leaf default are unchanged. Renderer-only; no host protocol, persistence, permission or plugin contract change. See `04-ux/08-component-spec.md` §9.1/§9.2/§9.5/§9.6, `04-ux/09-interaction-patterns.md` §4.2, and E2E-040.** | A payload that opened itself under the newest call pulled attention away from the answer the user was waiting for and made one turn look different depending on how it ended; leaving every payload to the user keeps one predictable row. |
+| D652 | Make session title generation a standalone plugin *(amended by D654)* | **Supersede ADR 0186: remove the built-in title completion and keep only the deterministic local fallback restored by D654; new sessions otherwise keep their localized default title until a user or plugin changes it. Add the high-risk `session.autoTitle` capability for bounded first-turn context and compare-and-set title updates, backed by schema v23 `sessions.title_source`; manual rename marks `manual`, plugin output marks `generated`. The standalone plugin configures its prompt template, model, and thinking level through its panel and uses `session:turnEnded`, `models.list`, and `agent.complete`. See ADR 0323, E2E-021a, and the plugin API/permission specs.** | Title generation is optional product policy with model and prompt settings, and the host needs a narrow durable boundary that makes manual titles win races. |
+| D653 | Make Composer prompt enhancement an optional plugin | **Supersede ADR 0121: remove host-owned prompt-enhancement UI, settings, direct completion IPC, and MCP action. Add the permission-gated `composer.transform` contribution and plugin callback, passing only the current draft plus an optional model key, with bounded input/output, audit, file-reference restoration, one-step undo, and stale session/draft guards. Keep `vastsa/pi-prompt-enhancement` in its own repository and require explicit user installation; do not bundle or enable it by default. On first plugin load, copy valid legacy preferences into unset plugin settings and write a private migration marker; preserve old host values for rollback. See ADR 0324, E2E-218 / E2E-259, and the plugin API/permission specs.** | Prompt enhancement is optional behavior that belongs to a separately installed plugin, while the host needs a narrow safe transform contract and a one-time path for existing settings. |
+| D654 | Keep the deterministic first-prompt session title in the core | **Amend D652 / ADR 0323: a session whose stored title is still a recognized placeholder derives a whitespace-collapsed 48-character fallback from the first prompt, written through the host RPC and IPC `session/deriveTitle`. Host-core applies it only while the title is still a placeholder with the `default` source, and the derived text keeps that source, so an installed title plugin may still replace it and only a manual rename opts out. No model call, no new permission, no schema or protocol version change; `updated_at`, transcript content, and message count stay unchanged. See `03-runtime/01-ipc-protocol.md`, `03-runtime/02-agent-runtime.md`, `03-runtime/06-host-rpc-protocol.md`, `03-runtime/04-data-storage.md`, `04-ux/08-component-spec.md`, and E2E-021a.** | Removing every automatic write left an untouched session showing a placeholder until a plugin ran, so offline readability depended on installing optional software. |
 
 ## B. Secondary implementation defaults
 
@@ -83,7 +94,7 @@ This log freezes previously open questions into concrete decisions.
 | D390 | Host-owned regenerate truncate | **Amend D199 / D258 / D307: `agent/prompt` truncates through `session.truncateFrom` under the host lock (identity-first cut, abort leftover running turn, archive discarded tail, rewrite prefix). The kept transcript does not cross JSON-RPC. An NDJSON request line over 64 MiB is `LIMIT_EXCEEDED` and does not end the stdin reader. Protocol version stays at 11. See ADR 0216 and E2E-246.** | Retrying a multi-thousand-message session timed out at 130 s on `session.replaceMessages` and could kill host stdin at 64 MiB (issue #211). |
 | D391 | Host stdout sender must not outlive serve | **Amend D390 / ADR 0216: the Windows Alt+Space hook retains only a weak clone of the stdout sender. After stdin EOF, dropping serve's sender closes the writer channel and host-core exits. Electron rejects an NDJSON request over 64 MiB before writing, with `LIMIT_EXCEEDED`. A host-side oversize reply peeks the JSON-RPC id from the truncated prefix so the client does not wait 130 s. Serve waits at most 5 s for the stdout writer after stdin ends. Protocol version stays at 11. See ADR 0217 and E2E-247.** | On Windows v0.14.6 a 64 MiB stdin cap ended the reader, but a strong keyboard sender kept the writer thread alive, so host-core became a zombie and Electron reported `host RPC timeout: session.replaceMessages` (issue #211). |
 | D392 | Effective image-input overrides across Composer and transport | **Amend D243 / ADR 0101: image capability starts with the published model record, then an exact binding's `supportsImages` value wins when it is `true` or `false`; absent or `null` follows the published value. Composer badges, attachment status, and main-process image transport use the same effective result. Unknown/custom models remain conservative without an explicit override. See ADR 0218 and E2E-163.** | A configured endpoint could already transport an image through its binding override while the Composer row still hid the vision badge, or could show a published badge after image input was disabled for that endpoint. |
-| D393 | User-invoked Skills in the composer | **Amend D123 / D174 / ADR 0024 / ADR 0039: active built-in, plugin, and user Skills appear in a separate `Skills` group at the end of the composer slash menu. Selecting one inserts its exact id; Electron main revalidates the active project scope at send time and asks the model to call the local `Skill` tool, preserving on-demand body loading and existing permissions. Existing command names win collisions; inactive Skills remain literal slash text. See ADR 0219 and E2E-088b.** | D174's model-invoked catalog remains the body-loading and security contract, while a final explicit entry makes known workflows discoverable without moving Skill bodies into the renderer, prompt, or host protocol. |
+| D393 | User-invoked Skills in the composer | **Amend D123 / D174 / ADR 0024 / ADR 0039: active built-in, plugin, and user Skills appear in a separate `Skills` group at the end of the composer slash menu. Their names use `/skill:<id>` while the original id remains the send-time Skill identity; Electron main revalidates the active project scope and asks the model to call the local `Skill` tool, preserving on-demand body loading and existing permissions. Unprefixed command and template names remain unchanged; inactive Skills remain literal slash text. See ADR 0219 and E2E-088b.** | D174's model-invoked catalog remains the body-loading and security contract, while a final explicit entry makes known workflows discoverable without moving Skill bodies into the renderer, prompt, or host protocol. |
 | D394 | Windows work-panel chrome keeps one resource action cluster | **Amend D154 / D357 / ADR 0195: the open work-panel header keeps one compact resource switcher; resource close is owned by the existing keyboard-operable context-menu rows, the viewport-fixed toggle remains the only panel collapse control, and subagent detail returns with a back chevron. Windows/Linux native controls remain fixed at the window edge. Renderer-only; no panel state, window geometry, IPC, protocol, or storage change. See ADR 0220 and E2E-067.** | The header resource `X`, viewport-fixed toggle, and Windows native close cluster read as duplicate close actions and became cramped at narrow panel widths. |
 | D396 | Renderer and plugin-panel scrollbars share one compact contract | **Amend D300: every renderer scroll container uses one 6px, trackless, transparent-at-rest scrollbar with the same hover, focus-within, scroll-reveal, and dragged-thumb states. Remove the sidebar-specific width and opacity override. The plugin-panel preload applies the same contract and 300ms reveal mark to docked and detached plugin documents, including the bundled Files view. External pages loaded inside the Browser guest remain page-owned. Presentation-only; no protocol, storage, host runtime, or external-page behavior change. See E2E-157.** | Windows' classic scrollbar made the right-side work-panel Files view visibly heavier than the conversation, while the sidebar retained a second scrollbar treatment. |
 | D-LOCAL-message-quotes | Message quotes and renderer-owned side chats | *(retired by ADR 0268 on 2026-09-16)* **Amend D209 / D301: every user message and assistant turn gains a Quote action that inserts a `> `-prefixed Markdown blockquote plus a `chat.quoteSource` attribution into the active session's composer draft and focuses it, using the live selection inside that message row when one exists and the message's own text otherwise; it never sends and adds no chip kind, with a 2000-character cap. Open side chat forks the anchored message through `session.fork` without activating the child, registers the child as a renderer-owned side chat of the parent, and opens one `sidechat:<childSessionId>` tab in the existing docked panel that streams from the same event stream through the background-transcript reducer, with Add to main chat, Open as a conversation, a compact Send/Stop input, and the existing permission card. Closing the tab or activating the child removes the registration; the durable child stays an ordinary session. No protocol, schema, IPC, or permission change. See ADR message-quotes-and-side-chats and E2E-CHAT-quote-prefill through E2E-CHAT-side-chat-close.** | Users needed to reuse an exact earlier message or answer and to ask a side question without replacing the visible main conversation, and the existing fork path always activated its child. *(Amended by D-LOCAL-selection-overlay: the excerpt is recovered from the rendered DOM as Markdown, and a selection inside a transcript row offers Add to chat, Ask in side chat, and Copy from a selection-following overlay.)* |
@@ -93,7 +104,7 @@ This log freezes previously open questions into concrete decisions.
 | D400 | Restore deferred tools from effective session context | **Amend D185 / ADR 0048: before each new prompt and after a mode switch, clear the in-memory deferred activation set, then restore names from successful `ToolSearch` results (`addedToolNames`) and successful deferred-tool results in the effective `buildSessionContext` projection. Keep only names still in the current deferred catalog and mode; ignore errors, interrupted or missing-result placeholders, and assistant/user prose. No host permission or workspace boundary changes.** | Clearing activations while retaining their successful transcript markers left the model able to see a capability that was absent from the next provider schema. Reconstructing only from effective successful evidence keeps the provider request coherent without parsing prose or reviving stale or disallowed tools. See ADR 0225 and E2E-008a. |
 | D402 | Long-press project title to reorder | *(amended by D403)* **Amend D399 / D093 / ADR 0227: retained project groups have no visible reorder grip. A 400ms still press on the project title arms a pointer reorder; movement beyond 8px before that delay cancels it so a click still selects and toggles collapse. ArrowUp/ArrowDown on the focused title is the keyboard path; Escape cancels. Persistence, pin/archive buckets, host workspace identity, session ordering, and on-disk directories are unchanged. See ADR 0228 and E2E-253.** | The dedicated grip consumed a leading column and made reorder a second control beside the title that already selects and collapses the group. |
 | D403 | Press-and-move project title reorder | **Amend D402 / D093 / ADR 0228: mouse and pen reorder by pressing the project title and moving 8px; a click with no qualifying movement still selects and toggles collapse. Touch does not start a reorder. An accent insertion line shows before/after placement. ArrowUp/ArrowDown and Escape are unchanged. See ADR 0229 and E2E-253.** | A 400ms still press is a mobile long-press pattern and is slower than ChatGPT-style desktop sidebar lists. |
-| D404 | Skill ships with the Agent core tool set | **Amend D174 / D185 / ADR 0048 / ADR 0219: `Skill` joins the Agent-mode core tool set, so its schema is present on the first provider request whenever the skill catalog is non-empty. It is removed from the deferred catalog and never appears under `# On-demand tools`; the other on-demand capabilities and `ToolSearch` are unchanged, and Plan and Goal still omit the tool entirely. No protocol, storage, permission, or skill-body change. See ADR 0230 and E2E-254.** | A user-typed `/skill-id` and the `# Skills` section both ask the model to call `Skill`, and a tool that is absent from the schema cannot be called at all: the deferred entry added a discovery round trip before any skill body could load (issue #204). |
+| D404 | Skill ships with the Agent core tool set | **Amend D174 / D185 / ADR 0048 / ADR 0219: `Skill` joins the Agent-mode core tool set, so its schema is present on the first provider request whenever the skill catalog is non-empty. It is removed from the deferred catalog and never appears under `# On-demand tools`; the other on-demand capabilities and `ToolSearch` are unchanged, and Plan and Goal still omit the tool entirely. No protocol, storage, permission, or skill-body change. See ADR 0230 and E2E-254.** | A user-typed `/skill:<skill-id>` and the `# Skills` section both ask the model to call `Skill`, and a tool that is absent from the schema cannot be called at all: the deferred entry added a discovery round trip before any skill body could load (issue #204). |
 | D405 | Ideographic comma opens the slash menu | **Amend D123 / D139 / ADR 0024: a `、` (U+3001) committed as the first character of an empty composer draft is rewritten to `/` before trigger detection, so a Chinese IME reaches the ordinary slash menu without switching input methods. Only that position is rewritten; a `、` anywhere else stays ordinary punctuation, and the `@` file menu is unaffected. Shared grammar and renderer only; no IPC, storage, or autocomplete-source change. See ADR 0231 and E2E-255.** | Reaching `/new`, `/compact`, a mode alias, or a Skill forced a Chinese IME user to switch to ASCII input mid-sentence and then switch back (issue #65). |
 | D406 | Keep macOS DMG opening guidance text-only | *(amended by D457 and D634)* **Amend D371 / ADR 0204: macOS DMGs no longer expose the opening-help note or executable helper, and macOS ZIP packages no longer retain them. The narrow Terminal fallback was for trusted unsigned builds; signed and notarized builds do not need it. See ADR 0232, ADR 0296, ADR 0309, and E2E-196b.** | The DMG should keep the normal app-to-Applications flow focused while still giving users a visible, actionable answer when an unsigned app does not open. |
 | D407 | Restore archived projects after session import | **Additive renderer behavior for issue #250: when a core or plugin import adds a new project-bound session, the import-triggered session refresh normalizes its project path and clears the renderer's archived presentation state for that project. Pathless sessions, skipped imports, historical plugin paths without an active binding, and ordinary refreshes leave archive state unchanged. Host project rows, IPC channels, plugin methods, storage schema, and data formats do not change. See ADR 0236 and E2E-257.** | The host can successfully materialize an imported session under a project while the renderer still hides that project's sidebar row as archived. Restoring only the newly imported binding makes the result discoverable without weakening deliberate archive choices during ordinary refreshes (issue #250). |
@@ -367,7 +378,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 | D334 | Contained in-chat image display | **Amend the desktop `fs/read` workspace-only clause: `fs/read`, `fs/reveal`, and `fs/open` share `resolveOpenablePath` (workspace, `<data_dir>/scratch/`, `<data_dir>/attachments/`, plus `attachments/<sha256>` blobs). Reads `realpath` the target. Add renderer-only `fs/readImageDataUrl` that returns a bounded image data URL or `missing` / `notImage` / `tooLarge` and never non-image bytes. A known image extension wins over client `mimeType`; extension-less blobs accept only the `IMAGE_MIME` allowlist. Chat thumbnails and local Markdown images load through that channel; click opens the host files viewer. Not a plugin API. See ADR 0172 and E2E-187.** | History attachments are extension-less data-root blobs the renderer origin cannot load; an unbounded absolute-path read would leak arbitrary files. |
 | D336 | Host-owned plugin completions and session context | **Amend D019: plugins may read the in-flight tool session's model-facing transcript through `pi.session.getLlmContext()` when `session.read` is granted, and may run a one-shot completion through `pi.agent.complete()` when `agent.complete` is granted. `pi.models.list()` lists ready provider/model rows (`models.list`). Credentials never leave Electron main. `includeSessionContext` requires both complete permissions and an in-flight tool session; plugins cannot pass a session id. Completions are rate-braked (8/60s) and size-capped. `session:modelChanged` is pushed after `session.configure`. The bundled first-party Advisor UX is temporarily not shipped; the public APIs remain available to explicitly installed plugins. No protocol/schema bump. See ADR 0174 and E2E-188 / E2E-189.** | Second-opinion tools need the user's models and the current LLM context without holding secrets or calling providers from plugin code. |
 | D340 | User-configurable outbound proxy | **Settings → General → Network exposes Proxy as System / Direct / Custom. Custom accepts http/https/socks5 URLs and a bypass list, persisted as optional `AppSettings.networkProxy`. Chromium `session.setProxy` covers the in-app browser and `net.fetch`; the agent sidecar applies an undici dispatcher (SOCKS5 CONNECT or HTTP ProxyAgent) via `sidecar.configure`; host-core marketplace curl uses `--proxy` from the stored blob and does not inherit proxy env (workspace Bash stays clean). OAuth still uses the system browser. No protocol or schema version bump. See ADR 0177 and E2E-190.** | Node fetch ignores the OS proxy, so Clash/V2Ray/SOCKS5 users could browse but not call models. One settings control should own app-owned HTTP. |
-| D342 | Import model configuration from local agent stores | **Amend D007: Settings → Import still never auto-imports `~/.pi` (or any other tool). An explicit Model configuration card scans Claude Code, Codex, OpenCode, Pi, and CC Switch (`~/.cc-switch/cc-switch.db`, fallback `config.json`) provider rows, lists drafts without secrets, and `modelConfig/importRun` copies API keys through `providers.create`. A live tool file that matches a CC Switch endpoint and credential is not listed twice. OAuth/subscription tokens stay in the source app. Equivalent providers (normalized base URL + API style + same credential) are skipped; different credentials at one endpoint remain independent rows (ADR 0188). If no global default model exists, the first newly created provider becomes it. Electron IPC only; no host protocol or schema version bump. See ADR 0179, ADR 0188, and E2E-209.** | Users already import sessions from those stores and otherwise retype the same endpoints and keys on the Models page. |
+| D342 | Import model configuration from local agent stores | **Amend D007: Settings → Import still never auto-imports `~/.pi` (or any other tool). An explicit Model configuration card scans Claude Code, Codex, OpenCode, Pi, and CC Switch (`~/.cc-switch/cc-switch.db`, fallback `config.json`) provider rows, lists drafts without secrets, and `modelConfig/importRun` copies API keys through `providers.create`. A live tool file that matches a CC Switch endpoint and credential is not listed twice. OAuth/subscription tokens stay in the source app. Equivalent providers (normalized base URL + API style + same credential) are skipped; different credentials at one endpoint remain independent rows (ADR 0188). If no global default model exists, the first newly created provider becomes it. Electron IPC only; no host protocol or schema version bump. See ADR 0179, ADR 0188, and E2E-209. The Settings placement and session-import UI were superseded by D645 / ADR 0319: model import now lives on Models, and Settings has no session-import UI.** | Users already import sessions from those stores and otherwise retype the same endpoints and keys on the Models page. |
 | D351 | Preserve distinct credentials during model configuration import | **Amend D342 / ADR 0179: an imported provider is equivalent only when normalized endpoint, API style, and credential all match. Same-endpoint profiles with different API keys create independent provider rows and remain selectable in Composer. Electron main resolves existing API keys through the host secret boundary; secrets never reach the renderer, logs, or provider metadata. The live-file-versus-CC-Switch scan uses the same credential-aware rule. No host protocol or storage schema version bump. See ADR 0188 and E2E-209.** | CC Switch stores multiple accounts at one gateway endpoint; endpoint-only idempotence silently dropped all but the first profile during import. |
 | D344 | Main-owned picker capabilities | **Amend D197 / D334: composer native file and image pickers keep selected absolute paths in Electron main behind a short-lived, sender-bound, one-shot token. `composer/importFiles` accepts only that token and a durable session id; the renderer never supplies source paths. The MVP file picker offers regular files only, so unsupported directory selection and its misleading UI copy are removed. Main retains realpath, regular-file, session-scratch, and size-limit validation. See ADR 0181 and E2E-102h.** | Renderer IPC is not a user-click gate: accepting arbitrary absolute paths in the import payload creates a local file exfiltration primitive. Folder import needs separate bounded traversal and symlink semantics. |
 | D314 | Shipped locale registry and language picker | **Amend D073: UI locales are listed in `@pi-desktop/i18n` (`en`, `zh-CN`, `zh-TW`, `tr`). Native names stay untranslated. Settings → General language is a searchable picker (Auto + registry), not three preview cards. Plugin labels keep their `en` + `zh-CN` contract with English fallback for shell locales without a plugin translation; the product changelog follows every shipped product locale. See ADR 0160, ADR 0182, and E2E-091.** | Preview cards cannot scale past two languages; a registry lets additional locales ship without rewriting the Appearance card. |
@@ -378,7 +389,7 @@ Gold source: local Codex electron captures; latest row wins where rows conflict.
 | D605 | Brazilian Portuguese (pt-BR) shell locale | **Amend D314 / ADR 0160 / ADR 0183 / ADR 0185: ship a complete `pt-BR` shell catalog with native name Português (Brasil) and English name Portuguese (Brazil). `pt-BR`, `pt_BR`, and regional `pt-*` resolve to the Brazilian Portuguese catalog; persisted `AppSettings.language` accepts `pt-BR`; Electron packages `pt-BR` and `pt_BR` Chromium locales; and a matching Brazilian Portuguese changelog keeps release notes in the active locale. No host protocol, storage schema, or IPC version change. See ADR 0306.** | Brazilian Portuguese users need a distinct complete shell and release-note language matching the existing searchable locale registry and packaging conventions. |
 | D350 | Focus-aware native task notifications | **Amend D117 / ADR 0107: `notification/showNative` carries `kind` as `task` or `interactive`. Omitted or unknown values default to `task`. Task banners are suppressed whenever the main window is visible and focused, including a focused background session. Interactive prompts are suppressed only for the exact visible focused session. Interactive prompts never create a durable task inbox row. Plugin notifications stay on their permission-gated path. No host protocol or storage schema change. See ADR 0187 and E2E-065 / E2E-065a.** | Task completions and interactive asks share one native channel but need different focus rules. The field is `kind`; a colliding `source` name is not part of the contract. |
 | D358 | Show provider retry causes in the active-turn status | **Amend ADR 0175: `AgentActivity.retrying` may carry bounded, already-redacted error details. The compact retry row stays at rest; hover or keyboard focus reveals the localized summary, stable code/status, and provider message. Intermediate retries never become transcript error rows. See ADR 0196 and US-UI-60d.** | Users need the current retry cause without duplicating the final assistant error. |
-| D359 | Summarize first-turn session titles with a main-owned one-shot | **Keep the first-prompt fallback synchronous. After `agent_end`, the renderer calls allowlisted `session/summarizeTitle`. Electron resolves the session model and runs a thinking-disabled one-shot; a valid result persists through `session.rename`. Automatic replacement refuses a persisted `manualTitle` and any title that is neither a default nor the first-prompt fallback. No host schema change. See ADR 0186 and E2E-021a.** | A truncated first prompt is a poor sidebar label, but title generation must not block the turn or expose credentials to the renderer. |
+| D359 | Summarize first-turn session titles with a main-owned one-shot *(superseded by D652)* | **Historical: the core once applied a first-prompt fallback, then ran `session/summarizeTitle` from Electron after `agent_end`. D652 removes both automatic title paths and moves optional generation to a standalone plugin.** | A truncated first prompt was a poor sidebar label, but title generation must not block the turn or expose credentials to the renderer. |
 | D361 | Inline image transport uses a 10 MB app-side bound | **Amend ADR 0101 / D197: `MAX_INLINE_IMAGE_BYTES` is 10,000,000. Vision-capable models receive images at or below that decimal 10 MB bound as transient base64; larger images and non-vision models keep the `@path` fallback. Electron main and the sidecar share the constant so replay cannot take a different path. No protocol or schema change.** | MiniMax's OpenAI-compatible endpoint accepts one image up to 10 MB; a higher app bound produced provider rejections after the composer had already inlined the bytes. |
 | D316 | Searchable theme picker | **Amend ADR 0160: Settings → General theme is a searchable picker row (same anchored-menu pattern as Language), not three preview cards. System / Light / Dark stay pinned at the top; plugin themes follow after a divider. `AppSettings.theme` and plugin-theme fallback are unchanged. See ADR 0161 and E2E-091.** | Plugin themes wrap a three-column card grid, and Language already solved the growing-list control. |
 | D121 | Branded macOS development host | **`pnpm dev` on macOS launches electron-vite through a fingerprinted, ad-hoc-signed PI-Desktop copy of the installed Electron host bundle under `.cache/electron-dev/`. The generated bundle changes only development host metadata, executable name, bundle identifier, and the ICNS resource; it never mutates `node_modules`. Windows/Linux keep the stock development executable, while packaged lanes remain electron-builder-owned.** | AppKit ignores runtime app-name/menu overrides for the top-level application identity and takes the native menu name and About icon from the host bundle; a branded development host is required for parity with packaged PI-Desktop. |
@@ -958,7 +969,8 @@ section mirrors only marketplace/catalog items still blocking nothing.
   contract, but its rejection of a user-facing slash entry made active Skills
   difficult to discover for users who already knew the workflow they wanted.
 - D393 / ADR 0219 adds active built-in, plugin, and user Skills as the final
-  group in the composer `/` menu. Selection inserts the exact id; Electron
+  group in the composer `/` menu. Selection inserts `/skill:<id>` while keeping
+  the original id for send-time resolution; Electron
   main revalidates the current project scope and asks the model to call the
   local `Skill` tool. The typed command remains the transcript chip, and no
   host protocol or durable schema changes.
@@ -4128,17 +4140,14 @@ D193, and D194.
   mapping, settings/pluginChanged apply path, and the darwin live-window
   vibrancy guard. See `04-ux/08-component-spec.md` §1.7 and US-UI-74 / E2E-076.
 
-## 2026-09-08 — Session title summaries and focus-aware native task notifications (D359/D350)
+## 2026-09-08 — Session title summaries and focus-aware native task notifications (historical title decision superseded by D652; D350 remains active)
 
-- The initial prompt remains visible immediately as a normalized 48-character
+- At the time, the initial prompt appeared immediately as a normalized 48-character
   fallback. After the first turn, Electron resolves the session's effective
   provider/model and runs the main-owned `session/summarizeTitle` one-shot with
   thinking disabled; the renderer persists a successful result through
-  `session.rename`.
-- Renderer-local session metadata persists `manualTitle`. Automatic title
-  generation skips that marker and any persisted title that is neither a known
-  default nor the first-prompt fallback, so manual and already-summarized titles
-  survive renderer restart without a host schema change.
+  `session.rename`. D652 / ADR 0323 removed this behavior and made title
+  generation an optional standalone plugin.
 - Native task completion and interactive prompt alerts share an Electron IPC
   entry but have explicit `kind` values. Task banners are suppressed whenever
   the main window is visible and focused, including focused background sessions;
@@ -5465,11 +5474,7 @@ not an unreviewed upstream registry passthrough.
 
 ## 2026-09-15 — Plugin-declared providers are Host-owned rows (D427)
 
-**A plugin may declare `contributes.providers`, and the Host materializes each entry as a provider row in the native Settings → Provider list, owned by that plugin (`providers.owner_plugin_id`, schema v17; row id `plugin:<pluginId>:<declaredId>`). The declaration is re-read on every load and is authoritative for its own fields, so a dropped entry is deleted together with both credential references; `providers.update` / `providers.delete` refuse a plugin-owned row with `PROVIDER_OWNED_BY_PLUGIN`. A non-empty declaration needs the new high-risk `provider.register` permission, and an `oauth` block or `authKind: "oauth"` is refused until a Host-owned login flow exists. See ADR 0259, `07-plugins/02-plugin-manifest-schema.md` §5.4, `07-plugins/13-plugin-permissions-matrix.md`, `03-runtime/04-data-storage.md` §4.3/§7, and E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list.**
-
-It deliberately does not include plugin OAuth: the `provider.oauth` permission
-and a Host-owned plugin login flow are future work, so a declared provider has no
-OAuth login, token refresh, or account label today.
+**A plugin may declare `contributes.providers`, and the Host materializes each entry as a provider row in the native Settings → Provider list, owned by that plugin (`providers.owner_plugin_id`, schema v17; row id `plugin:<pluginId>:<declaredId>`). The declaration is re-read on every load and is authoritative for its own fields, so a dropped entry is deleted together with both credential references; `providers.update` / `providers.delete` refuse a plugin-owned row with `PROVIDER_OWNED_BY_PLUGIN`. A non-empty declaration needs the new high-risk `provider.register` permission. D427 initially excluded OAuth; D647 amends it with a Host-owned login flow and separate high-risk `provider.oauth` grant. See ADR 0259, ADR 0320, `07-plugins/02-plugin-manifest-schema.md` §5.4, `07-plugins/13-plugin-permissions-matrix.md`, `03-runtime/04-data-storage.md` §4.3/§7, and E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list.**
 
 ## 2026-09-15 — Side chats materialize on first Send (#421)
 
@@ -7356,9 +7361,11 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   left, bottom, and right rim. Electron 43.6 retains its frameless native edge
   and corner hit test, so no renderer resize path or geometry IPC is added.
   macOS/Linux window behavior and work-panel resize ownership remain unchanged.
-  The Windows main window defaults to a native 4 DIP shape whose corner pixels
-  and hit targets are absent; an authorized plugin theme may choose an integer
-  radius from 0 to 24 DIP, reverting to 4 when the theme is withdrawn. The
+  The Windows main window defaults to the global 12 DIP `--radius-md` native
+  shape whose corner pixels and hit targets are absent; an authorized plugin
+  theme may choose an integer radius from 0 to 24 DIP, reverting to 12 when the
+  theme is withdrawn. This replaces the barely visible 4 DIP cutout so the
+  native corners match the app's global radius scale. The
   D635 work-area-capped minimum remains in force. The removed thick frame
   leaves no native shadow control for themes; external shadow needs a separate
   window-geometry decision. See ADR 0317 and E2E-167.
@@ -7410,3 +7417,186 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
 - Dispatch over `plugins.execute`, read-only-mode handling and the `mcp_`
   namespace are unchanged. See ADR `mcp-tool-approval-risk` and
   E2E-MCP-tool-requires-approval.
+
+## 2026-10-04 — Cloud sync is a public Experimental destination (D642)
+
+- D642 removes the developer-mode and packaged-build gates from the Settings
+  `sync` destination: its rail row, page, and settings-search hits are
+  available to every user in every build, and a saved `sync` tab no longer
+  falls back to General. Remote Hosts keeps both gates.
+- The destination kept its Experimental badge on the rail row and page title
+  at that time (amended by D643 and D649).
+- Covered by `apps/desktop/test/settings-developer-only-destinations.test.mjs`
+  and the Cloud sync probe in `pnpm test:e2e:settings-scroll`. See
+  `04-ux/06-settings-ia.md` and E2E-CONFIG-SYNC-webdav-portable-configuration.
+
+## 2026-10-04 — Cloud sync ships without an Experimental badge (D643)
+
+- D643 amends D642: the Settings `sync` destination drops its
+  `experimentalBadgeKey`, and `settings.configSync.experimental` is removed
+  from every bundled locale. Cloud sync stays available to every user in
+  every build (amended by D649).
+- Remote Hosts keeps its own badge and both gates. Sync behavior, protocol,
+  host schema, and persisted data are unchanged.
+- Covered by the badge assertions in
+  `apps/desktop/test/settings-developer-only-destinations.test.mjs` and
+  `apps/desktop/test/config-sync-settings.test.mjs`, plus the Cloud sync probe
+  in `pnpm test:e2e:settings-scroll`.
+
+## 2026-10-04 — Instruction files sync without an instruction-specific byte cap (D644)
+
+- D644 removes the 32 KiB per-file cap Host enforced on portable instruction
+  files. A project `AGENTS.md` larger than that cap failed the whole capture
+  with `CONFIG_SYNC_LIMIT_EXCEEDED: instruction file is too large`, which the
+  settings page could only report as a generic backup-size error.
+- Instruction content is now bounded only by the shared portable-entity payload
+  bound Host checks when it uploads a revision and when it validates a remote
+  one. UTF-8 validation, symlink rejection, scope selection, mapping, and
+  approval rules are unchanged, and the agent-runtime prompt chain keeps its
+  own read-side budget.
+- Covered by
+  `config_sync::domains::tests::captures_project_instruction_files_beyond_the_former_size_cap`
+  and
+  `config_sync::domains::tests::writes_imported_instruction_files_beyond_the_former_size_cap`
+  in `crates/host-core/src/config_sync/domains.rs`.
+## 2026-10-04 — External imports live with their Settings destination (D645)
+
+- D645 removes the standalone Settings `import` destination. Model
+  configuration, external skills, and external MCP scans are opened inline
+  from Models, Skills, and MCP respectively. Capability imports follow the
+  selected global/project level, and project scans bind to the selected
+  project.
+- Settings no longer exposes core session scanning/import. Plugins retain
+  their existing host-owned session import API and project binding behavior;
+  no IPC, plugin permission, host protocol, or persistence contract changes.
+- Covered by the isolated Settings MCP import user-path test, scoped MCP IPC,
+  and safe MCP metadata tests. See
+  ADR 0319, `04-ux/06-settings-ia.md`, `04-ux/08-component-spec.md`, and
+  E2E-038 / E2E-043 / E2E-209.
+
+## 2026-10-04 — The empty home names the open project before its first session (D646)
+
+- D646 fixes the empty home after opening a project. The hero title only named
+  a project when a session on screen carried that project's path, so creating
+  a project, or opening one whose sessions are all archived or unselected,
+  left the generic "What can I help you build?" title and hid which project a
+  task started there would join.
+- The hero now falls back to the active workspace when no session is on
+  screen. A session still decides when there is one, so a temporary session
+  keeps its own copy and no project switcher, and with no project open the
+  generic title stands. Session state, IPC, persistence, and the switcher's
+  actions are unchanged.
+- Covered by `apps/desktop/test/home-project-name.test.mjs`, which renders the
+  real surface against the real store. See `04-ux/01-ui-ia.md`,
+  `04-ux/08-component-spec.md`, and E2E-256.
+
+## 2026-10-06 — Plugin providers can own OAuth sign-in through a scoped callback (D647)
+
+- D647 amends ADR 0259: a plugin provider may declare `authKind: "oauth"` when
+  it has `provider.register`, the separate high-risk `provider.oauth` grant, and
+  an `onProviderOAuth` callback. The Host owns the login UI, encrypted
+  `secret:provider:<rowId>:oauth` storage, refresh serialization, and the
+  per-request auth resolver. The callback can read only its own provider's
+  OAuth credential; the Agent Runtime receives only an access token and the
+  renderer receives no tokens. `pi.providers.oauth.prompt` and `.notify` provide
+  bounded host-rendered login interaction. Host-mediated network calls still
+  need `net.fetch` and declared domains; plugin entry code remains outside an
+  OS sandbox. One credential is stored per declared provider row, and sign-out
+  clears it without deleting the manifest-owned row. Plugin-owned provider rows
+  and credentials remain out of portable configuration capture.
+- Covered by the updated plugin manifest/provider validation contracts and the
+  provider OAuth scenario in E2E-PLUGIN-declared-provider-appears-in-the-native-provider-list.
+  See ADR 0320, the plugin OAuth API and permission specs, and
+  `03-runtime/14-secrets-storage.md`.
+
+## 2026-10-06 — Skill Market pins an acceptable address for mixed direct DNS answers (D648)
+
+- On a direct route, the Skill Market selects and pins an acceptable address
+  when a DNS response mixes acceptable and rejected addresses. A public
+  third-party address is preferred; the existing `benchmark` fake-IP opt-in is
+  the only non-public choice. ULA-only results remain blocked, and proxied or
+  unreadable routes keep the ADR 0272 policy.
+- The pinned direct request preserves the requested hostname for TLS SNI and
+  `Host`, and every redirect receives its own DNS check and connection pin.
+- Covered by the direct transport integration test and the mixed public/ULA and
+  benchmark/ULA cases in `apps/desktop/test/public-https-fetch-route.test.mjs`.
+  See ADR 0321, `05-security/01-security.md` §4.1, and
+  E2E-SKILL-MARKET-NET-BOUNDARY.
+
+## 2026-10-07 — Cloud backup stays closed to users (D649)
+
+- D649 amends D642 / D643: the Settings `sync` destination is
+  development-build-only again. A packaged build omits its rail row, page, and
+  settings-search hits, and a saved `sync` tab returns to General; development
+  builds keep the destination, and developer mode still plays no part.
+- The destination still carries no Experimental badge, and sync behavior,
+  protocol, host schema, and persisted data are unchanged. Removing
+  `developmentOnly: true` from the destination entry reopens it for packaged
+  builds.
+- Covered by `apps/desktop/test/settings-developer-only-destinations.test.mjs`
+  and `apps/desktop/test/config-sync-settings.test.mjs`; the Cloud sync probe in
+  `pnpm test:e2e:settings-scroll` runs a development build. See
+  `04-ux/06-settings-ia.md` and E2E-CONFIG-SYNC-webdav-portable-configuration.
+
+## 2026-10-08 — Plugin providers appear in Add Service (D650)
+
+- ADR 0322 adds provider category and optional short-description metadata to a
+  Host-rendered Add Service projection for unconfigured API-key providers from
+  loaded plugins with `provider.register`.
+- Tiles show the provider name; its introduction is available on hover or
+  keyboard focus. There is no provider-count cap per plugin. Empty model lists
+  discover and cache endpoint models after the user saves a key.
+- The key still uses the Host's existing provider secret path, and a configured
+  row leaves the chooser. OAuth and no-auth declarations do not appear.
+- See E2E-PLUGIN-provider-catalog-add-service and
+  `07-plugins/02-plugin-manifest-schema.md` §5.4.
+## 2026-10-08 — Make session title generation a standalone plugin (D652)
+
+- The core keeps one automatic title path: the deterministic first-prompt
+  fallback (D654). It runs no title completion, and a session without the plugin
+  keeps the derived fallback instead of a placeholder.
+- The `session.autoTitle` permission exposes only bounded first-turn text for a
+  default-titled session and a host compare-and-set title update. Schema v23
+  tracks default, manual, and generated title ownership.
+- The standalone plugin exposes its prompt template, model, and thinking level
+  in a settings panel. It uses `session:turnEnded`, `models.list`, and
+  `agent.complete`; manual rename wins any concurrent update.
+- Covered by the host title-source and plugin API tests and E2E-021a. See
+  ADR 0323 and the plugin API and permission specifications.
+
+## 2026-10-08 — Transcript tool rows never auto-open (D651)
+
+- D651 amends the leaf auto-open provision introduced with the turn-process
+  disclosure: in both Detailed and Compact a tool-call, hosted-search or plan row
+  keeps its payload collapsed until the user opens it, wherever it sits in the
+  activity group. Whole-process and ordinary-group defaults, failed and denied
+  behavior, per-item retained choices, and the thinking row's own leaf default are
+  unchanged.
+- Covered by `apps/desktop/test/interaction-performance.test.mjs`,
+  `apps/desktop/test/thinking-ui.test.mjs`, and
+  `apps/desktop/test/transcript-summary.test.mjs`; the unit test for the removed
+  leaf-ownership helper is retired. See `04-ux/08-component-spec.md`
+  §9.1/§9.2/§9.5, `04-ux/09-interaction-patterns.md` §4.2, ADR
+  `turn-process-and-thinking-display`, and E2E-040.
+
+## 2026-10-08 — Keep the deterministic first-prompt session title (D654)
+
+- `session.deriveTitle` restores the immediate label a new session used to get
+  from its first prompt: the renderer collapses whitespace and caps the request
+  at 48 characters, and host-core writes it only while the stored title is still
+  a recognized placeholder with the `default` source.
+- The write keeps that source, so the derived title stays replaceable: the
+  `session.autoTitle` plugin can still upgrade it through its compare-and-set,
+  while manual renames, earlier plugin titles, and second prompts never change
+  it. No model call, permission, schema, or protocol version changes.
+- Placeholder recognition now covers every shipped locale: the renderer creates a
+  session with its localized `chat.untitledTask` label, so host-core (and the
+  v23 migration) had classified Korean, Traditional-Chinese, Brazilian
+  Portuguese, and Turkish placeholders as `manual` and blocked both the fallback
+  and the plugin there. The recognized list mirrors the renderer catalog.
+- Remote sessions derive on their own Host: the remote-host RACP profile gains
+  `session/deriveTitle` (controller), so a paired desktop no longer gates the
+  fallback off for a `remote` session. A native Pi session keeps its own title.
+- Covered by `apps/desktop/test/session-title-prompt-fallback.test.mjs`,
+  `apps/desktop/test/queue-pending-actions.test.mjs`, the host-core
+  `derive_session_title` tests, and E2E-021a. See ADR 0323.
