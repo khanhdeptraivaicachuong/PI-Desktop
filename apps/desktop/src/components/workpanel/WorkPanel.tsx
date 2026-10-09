@@ -801,7 +801,7 @@ export function WorkPanel({
       />
       <div className="work-panel-main">
         <header className="work-panel-header">
-          <div className="work-panel-tab-strip-wrap no-drag">
+          <div className="work-panel-tab-strip-wrap">
               <div
                 ref={tabStripRef}
                 className="work-panel-tab-strip"
@@ -824,7 +824,7 @@ export function WorkPanel({
                   return (
                     <div
                       className={cx(
-                        "work-panel-tab",
+                        "work-panel-tab no-drag",
                         selected && "active",
                         draggingTabId === tab.id && "is-dragging",
                         dropIndicator?.tabId === tab.id &&

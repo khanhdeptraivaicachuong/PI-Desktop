@@ -1,3 +1,4 @@
+import { projectPlanHistory } from "./plan-history";
 import type {
   ScheduledTaskRun,
   ActivationScope,
@@ -11,14 +12,10 @@ import type {
   UiMessage,
   MessageRevisionSummary,
   AgentPromptResponse,
-  PromptEnhancementRequest,
-  PromptEnhancementResponse,
   SpeechStatus,
   SpeechSynthesizeRequest,
   SpeechSynthesizeResult,
   SpeechTranscribeRequest,
-  SessionSummarizeTitleRequest,
-  SessionSummarizeTitleResponse,
   AgentStopResponse,
   AgentQueueChangedEvent,
   AgentQueuePushRequest,
@@ -28,6 +25,7 @@ import type {
   PendingInteractiveRequests,
   AgentInstructionFile,
   AppSettings,
+  JevKeyCheckResult,
   CommandShellCatalog,
   AppVersionInfo,
   BrowserAction,
@@ -60,6 +58,7 @@ import type {
   PluginPermissionReview,
   PluginSettingDefinition,
   PluginServiceStatus,
+  PluginProviderCatalogMeta,
   PluginViewMeta,
   PluginScenicThemesDestinationMeta,
   PluginTheme,
@@ -137,6 +136,7 @@ import {
   validateNetworkPolicy,
   validateNetworkProxy,
   validateSpeechSettings,
+  JEV_API_KEY_SECRET_REF,
 } from "@pi-desktop/shared";
 
 export type ImportSource = "claude-code" | "opencode" | "codex" | "pi";
@@ -281,6 +281,9 @@ export interface ExternalMcpImportItem {
 }
 
 export interface ExternalMcpImportPayload {
+  /** Defaults to global for existing callers. */
+  level?: "global" | "project";
+  projectPath?: string;
   items: ExternalMcpImportItem[];
 }
 
@@ -335,6 +338,7 @@ function normalizeSessionDetail(detail: SessionDetail | null): SessionDetail | n
   return detail
     ? {
         ...detail,
+        messages: projectPlanHistory(detail.messages, detail.planHistory ?? [], detail.id),
         mode: normalizeMode((detail as { mode?: unknown }).mode),
       }
     : null;
@@ -357,6 +361,7 @@ export function normalizeSettings(settings: AppSettings): AppSettings {
     defaultMode: normalizeMode((settings as { defaultMode?: unknown }).defaultMode),
     infiniteProviderRetry:
       (settings as { infiniteProviderRetry?: unknown }).infiniteProviderRetry === true,
+    jevEnabled: (settings as { jevEnabled?: unknown }).jevEnabled === true,
     defaultCommandShell: isCommandShellId(
       (settings as { defaultCommandShell?: unknown }).defaultCommandShell,
     )
@@ -392,6 +397,7 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     fontScale?: unknown;
     chatContentMaxWidth?: unknown;
     infiniteProviderRetry?: unknown;
+    jevEnabled?: unknown;
     smoothStreaming?: unknown;
     updatePreference?: unknown;
     lastNotifiedUpdateVersion?: unknown;
@@ -436,6 +442,14 @@ export function validateSettingsWrite(settings: AppSettings): AppSettings {
     typeof value.infiniteProviderRetry !== "boolean"
   ) {
     throw Object.assign(new Error("infiniteProviderRetry is invalid"), {
+      errorCode: "INVALID_PARAMS",
+    });
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, "jevEnabled") &&
+    typeof value.jevEnabled !== "boolean"
+  ) {
+    throw Object.assign(new Error("jevEnabled is invalid"), {
       errorCode: "INVALID_PARAMS",
     });
   }
@@ -607,13 +621,14 @@ export const api = {
     invoke<{ ok: boolean; path: string }>(IPC.invoke.projectOpenFolder, path),
   renameSession: (id: string, title: string) =>
     invoke<{ ok: boolean }>(IPC.invoke.sessionRename, id, title),
+  /** Ask the host for a first-prompt title; it refuses a renamed session. */
+  deriveSessionTitle: (id: string, title: string) =>
+    invoke<{ updated: boolean }>(IPC.invoke.sessionDeriveTitle, id, title),
   moveSessionProject: (sessionId: string, projectPath: string) =>
     invoke<{ session: SessionSummary }>(IPC.invoke.sessionMoveProject, {
       sessionId,
       projectPath,
     }).then((result) => ({ ...result, session: normalizeSession(result.session) })),
-  summarizeSessionTitle: (req: SessionSummarizeTitleRequest) =>
-    invoke<SessionSummarizeTitleResponse>(IPC.invoke.sessionSummarizeTitle, req),
   configureSession: (
     id: string,
     config: Pick<SessionSummary, "mode" | "providerId" | "modelId"> &
@@ -649,6 +664,18 @@ export const api = {
     invoke<void>(IPC.invoke.storageRemoveBackup, input),
   setSettings: (settings: AppSettings) =>
     invoke(IPC.invoke.settingsSet, validateSettingsWrite(settings)),
+  /** Store the Jev key in Host secure storage; it is never returned to renderer state. */
+  setJevApiKey: (value: string) =>
+    invoke<void>(IPC.invoke.secretsSet, { secretRef: JEV_API_KEY_SECRET_REF, value }),
+  deleteJevApiKey: () => invoke<void>(IPC.invoke.secretsDelete, JEV_API_KEY_SECRET_REF),
+  hasJevApiKey: () =>
+    invoke<{ has: boolean }>(IPC.invoke.secretsHas, JEV_API_KEY_SECRET_REF).then((result) => result.has),
+  /**
+   * Ask TypeSafe whether this key works, without storing anything. Jev keeps
+   * a key only after this answered it; the check text is TypeSafe's own.
+   */
+  testJevApiKey: (value: string) =>
+    invoke<JevKeyCheckResult>(IPC.invoke.jevTest, value),
   configSyncGetState: () => invoke<ConfigSyncState>(IPC.invoke.configSyncGetState),
   configSyncConfigure: (input: ConfigSyncConfigureInput) =>
     invoke<ConfigSyncState>(IPC.invoke.configSyncConfigure, input),
@@ -931,8 +958,6 @@ export const api = {
     invoke<AgentPromptResponse>(IPC.invoke.agentSteer, req),
   prompt: (req: AgentPromptRequest) =>
     invoke<AgentPromptResponse>(IPC.invoke.agentPrompt, req),
-  enhancePrompt: (req: PromptEnhancementRequest) =>
-    invoke<PromptEnhancementResponse>(IPC.invoke.promptEnhance, req),
   speechStatus: () => invoke<SpeechStatus>(IPC.invoke.speechGetStatus),
   speechTranscribe: (req: SpeechTranscribeRequest) =>
     invoke<{ text: string }>(IPC.invoke.speechTranscribe, req),
@@ -1025,6 +1050,12 @@ export const api = {
     invoke(IPC.invoke.pluginSetAutoUpdate, { id, enabled }),
   getPluginSettings: (id: string) =>
     invoke<{ settings: PluginSettingDefinition[] }>(IPC.invoke.pluginSettingsGet, id),
+  runPluginComposerTransform: (input: {
+    pluginId: string;
+    id: string;
+    text: string;
+    modelKey?: string;
+  }) => invoke<string>(IPC.invoke.pluginComposerTransform, input),
   setPluginSettings: (id: string, settings: Record<string, unknown>) =>
     invoke<{ settings: PluginSettingDefinition[] }>(IPC.invoke.pluginSettingsSet, {
       id,
@@ -1242,6 +1273,8 @@ export const api = {
   togglePluginLauncher: () => invoke(IPC.invoke.pluginLauncherToggle),
   dismissPluginLauncher: () => invoke(IPC.invoke.pluginLauncherDismiss),
   listPluginThemes: () => invoke<PluginTheme[]>(IPC.invoke.pluginThemes),
+  listPluginProviderCatalog: () =>
+    invoke<PluginProviderCatalogMeta[]>(IPC.invoke.pluginProviderCatalog),
   listPluginScenicThemesDestinations: () => invoke<PluginScenicThemesDestinationMeta[]>(IPC.invoke.pluginScenicThemesDestinations),
   setPluginScenicThemeBlur: (pluginId: string, themeId: string, blur: number) => invoke(IPC.invoke.pluginScenicThemesSetBlur, { pluginId, themeId, blur }),
   listPluginServices: () => invoke<PluginServiceStatus[]>(IPC.invoke.pluginServices),

@@ -3,8 +3,8 @@
 > **翻译说明：** 本页是与 [英文源规格](/spec/00-baseline) 一一对应的机器辅助翻译。代码、协议字段和标识符保持原文；如翻译与英文源事实有歧义，以英文版本为准。
 
 
-- 基线版本：`0.4.19`
-- 日期：`2026-09-29`
+- 基线版本：`0.4.21`
+- 日期：`2026-10-04`
 - 状态：`Frozen for implementation details (Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v15 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + pi-owned model metadata + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font)`
 - 语言政策：**英语优先**
 - 后端策略：**Rust 主机核心 + pi 代理 sidecar**
@@ -90,6 +90,9 @@
 > D374 将其修订为单一规范 WebSocket 绑定、无头 Agent Host 模块和完整本地审批词汇；
 > D375 将 SSH 隧道远端 Host 排在首位，Gateway 与浏览器访问不排期。
 > 当前基线仍排除远程 Gateway / WebUI 控制。
+> `0.4.21` 移除了独立的设置「导入」目的地。模型、技能和 MCP 扫描
+> 内嵌在各自的设置页面中；会话导入继续通过现有插件 API 提供
+>（D645 / ADR 0319）。
 
 ## 冻结的决定
 
@@ -138,7 +141,8 @@
 37. Secrets后端：**safeStorage主+加密文件后备**
 38. 工作区忽略：**拒绝列表 + 默认值 + `.pi-desktopignore`**
 39. 工具结果限制：**按工具预算（搜索 128KB / 4000 行，shell 96KB / 4000 行）；仅在结果被切断时 `truncated`**
-40.设置目录：**Basics/模型配置/Import/Project archive/Info**；
+40.设置目录：**常规/AI/快捷键/指令/模型/技能/MCP/子智能体/项目归档/云同步/远程主机/信息**；
+    外部模型、技能和 MCP 扫描内嵌在各自页面；会话导入由插件负责；
     项目档案拥有持久的项目发现、归档、恢复和
     重新开放工作流程；
     插件管理仍然是应用程序外壳的独立 **插件** 目的地

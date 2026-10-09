@@ -25,7 +25,7 @@ const SmoothMessageBubble = memo(function SmoothMessageBubble({ message, streami
       className={`message-bubble assistant-turn-fragment${streaming ? " streaming" : ""}${showCursor ? " smooth-cursor" : ""}`}
       data-message-id={message.id}
     >
-      {displayContent ? <div className="prose-chat"><Markdown source={displayContent} /></div> : null}
+      {displayContent ? <div className="prose-chat"><Markdown source={displayContent} streaming={streaming} /></div> : null}
       {message.error ? <AssistantErrorMessage message={message} /> : null}
     </div>
   );
@@ -40,14 +40,13 @@ function partKey(part: AssistantTurnPart) {
 type PartContext = {
   isActive: boolean;
   activePart?: AssistantTurnPart;
-  lastActivityPart?: AssistantTurnPart;
   runtimeActivity?: AgentActivity;
   turnDelegationStatuses: ReadonlyMap<string, SubagentOutcome>;
   turnDelegationTimings: ReadonlyMap<string, SubagentTiming>;
 };
 
 const TurnPartBlock = memo(function TurnPartBlock({
-  block, isActive, activePart, lastActivityPart, runtimeActivity,
+  block, isActive, activePart, runtimeActivity,
   turnDelegationStatuses, turnDelegationTimings,
 }: PartContext & { block: RenderBlock<AssistantTurnPart> }) {
   return <>{block.items.map((part) => part.kind === "activity" ? (
@@ -57,7 +56,6 @@ const TurnPartBlock = memo(function TurnPartBlock({
       items={part.items}
       endedAt={part.endedAt}
       isActive={part === activePart}
-      isLast={part === lastActivityPart}
       runtimeActivity={part === activePart ? runtimeActivity : undefined}
       turnDelegationStatuses={turnDelegationStatuses}
       turnDelegationTimings={turnDelegationTimings}
@@ -77,13 +75,11 @@ export const AssistantTurnParts = memo(function AssistantTurnParts({ parts, ...c
   const blocks = useRenderBlocks(parts, partKey);
   return <>{blocks.map((block) => {
     const activePart = context.activePart && block.items.includes(context.activePart) ? context.activePart : undefined;
-    const lastActivityPart = context.lastActivityPart && block.items.includes(context.lastActivityPart) ? context.lastActivityPart : undefined;
     return <TurnPartBlock
       key={block.key}
       block={block}
       isActive={context.isActive}
       activePart={activePart}
-      lastActivityPart={lastActivityPart}
       runtimeActivity={activePart ? context.runtimeActivity : undefined}
       turnDelegationStatuses={context.turnDelegationStatuses}
       turnDelegationTimings={context.turnDelegationTimings}

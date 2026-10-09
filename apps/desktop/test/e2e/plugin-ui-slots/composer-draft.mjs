@@ -14,8 +14,8 @@ function composerView() {
     mark: chip.dataset.pluginMark ?? null,
     name: chip.querySelector(".composer-chip-name")?.textContent ?? "",
   }));
-  const images = [...document.querySelectorAll(".composer-image-attachment-open")].map(
-    (open) => open.getAttribute("aria-label")?.split(" — ")[0] ?? "",
+  const images = [...(input?.querySelectorAll(".composer-chip[data-image]") ?? [])].map(
+    (chip) => chip.getAttribute("aria-label")?.split(" — ")[0] ?? "",
   );
   return {
     text: input ? (input.value ?? input.textContent) : null,
@@ -190,9 +190,59 @@ export async function driveComposerDraft({ renderer, check }) {
   const image = await step("attach-image", "the image", (out) => out.text === "image attached" || out.status === "error");
   const withImage = await view();
   check(
-    "an image attachment joins the draft's images, not its text",
-    image.status === "ok" && withImage.images.includes("lab-dot.png") && withImage.chips.length === withNote.chips.length,
-    JSON.stringify({ image, images: withImage.images }),
+    "an image attachment joins the draft as its own inline image chip",
+    image.status === "ok" && withImage.images.includes("lab-dot.png") &&
+      withImage.chips.some((chip) => chip.name === "lab-dot.png"),
+    JSON.stringify({ image, images: withImage.images, chips: withImage.chips }),
+  );
+  const beforeTransform = await view();
+  const userRowsBeforeTransform = await page(
+    () => document.querySelectorAll('.message-row[data-row-role="user"]').length,
+  );
+  await renderer.click("button.composer-plugin-transform-btn");
+  const transformed = await renderer
+    .until(
+      () => {
+        const input = document.querySelector(".composer-input");
+        const text = input ? (input.value ?? input.textContent) : null;
+        return typeof text === "string" && text.startsWith("Lab transformed: ") ? text : null;
+      },
+      null,
+      "the plugin Composer transform",
+      10_000,
+    )
+    .catch((error) => ({ error: error.message }));
+  const afterTransform = await view();
+  const userRowsAfterTransform = await page(
+    () => document.querySelectorAll('.message-row[data-row-role="user"]').length,
+  );
+  check(
+    "a user-invoked plugin transform updates only the draft and preserves attachment chips",
+    typeof transformed === "string" &&
+      afterTransform.text.startsWith("Lab transformed: ") &&
+      JSON.stringify(afterTransform.chips) === JSON.stringify(beforeTransform.chips) &&
+      JSON.stringify(afterTransform.images) === JSON.stringify(beforeTransform.images) &&
+      userRowsAfterTransform === userRowsBeforeTransform,
+    JSON.stringify({ beforeTransform, afterTransform, transformed, userRowsBeforeTransform, userRowsAfterTransform }),
+  );
+  await renderer.click("button.composer-plugin-transform-undo");
+  const undone = await renderer
+    .until(
+      (originalText) => {
+        const input = document.querySelector(".composer-input");
+        const text = input ? (input.value ?? input.textContent) : null;
+        return text === originalText ? text : null;
+      },
+      beforeTransform.text,
+      "the plugin transform undo",
+      5_000,
+    )
+    .catch((error) => ({ error: error.message }));
+  check(
+    "undo restores the source draft without moving its image chip",
+    undone === beforeTransform.text &&
+      JSON.stringify((await view()).chips) === JSON.stringify(beforeTransform.chips),
+    JSON.stringify({ undone, beforeTransform }),
   );
   const path = await step("attach-path", "the path", (out) => out.status === "error");
   check("a path is refused, not read", path.text === "PLUGIN_ATTACHMENT_REFERENCE_REFUSED", JSON.stringify(path));

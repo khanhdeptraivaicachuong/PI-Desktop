@@ -1,8 +1,8 @@
 # PI-Desktop Baseline Freeze
 
-- Baseline Version: `0.4.20`
-- Date: `2026-10-02`
-- Status: `Frozen for implementation details (indefinite local permission approvals + Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev chat model catalog + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups)`
+- Baseline Version: `0.4.22`
+- Date: `2026-10-08`
+- Status: `Frozen for implementation details (indefinite local permission approvals + Plan checkpoint artifact + approval/execution startup fence + protocol v11 + schema v16 + host-owned plugin session import/read/update/delete P0/P1 + selectable shell catalog + icon-free composer prompt row + turn-boundary context checkpoint compaction + session-scoped work panel + edge-specific work-panel/chat resize ownership + models.dev chat model catalog + provider/runtime safety + M5 hardening + settings IA + project archive + sidebar organization + app update delivery + three-platform release + Extensions page density and theme-readable actions + custom global UI font + ChatGPT-style logical project groups + categorized plugin providers in Add Service)`
 - Language policy: **English-first**
 - Backend policy: **Rust host core + pi agent sidecar**
 
@@ -37,6 +37,15 @@
 > safe unanimous third-party matches as fallback. Pi remains the OAuth,
 > transport and typed non-chat operation layer; it no longer supplies sibling
 > chat-model limits.
+> `0.4.21` removes the standalone Settings Import destination. Model, skill,
+> and MCP scans live inside their owning settings pages, while session import
+> remains available to plugins through the existing plugin API (D645 / ADR
+> 0319).
+> `0.4.22` adds plugin-declared providers to Settings → Models → Add Service
+> (D650 / ADR 0322). The chooser shows names under their custom categories and
+> reveals one-sentence introductions on hover or keyboard focus. Provider count
+> is not capped per plugin. Empty model declarations discover models only after
+> the user saves a key; the Host reuses existing rows and secret storage.
 > `0.4.10` replaces destructive work-panel clearing on conversation switches
 > with runtime session-scoped contexts through D142 / ADR 0028.
 > `0.4.11` adopts turn-boundary model-context checkpoint compaction through
@@ -165,7 +174,9 @@
 37. Secrets backend: **safeStorage primary + encrypted file fallback**
 38. Workspace ignore: **denylist + defaults + `.pi-desktopignore`**
 39. Tool result limits: **per-tool budgets (128KB / 4000 lines search, 96KB / 4000 lines shell); `truncated` only when a result is cut short**
-40. Settings directory: **Basics / Model configuration / Import / Project archive / Info**;
+40. Settings directory: **General / AI / Shortcuts / Instructions / Models / Skills / MCP / Subagents / Project archive / Cloud sync / Remote Hosts / Info**;
+    external model, skill, and MCP scans live in their owning pages; session
+    import is plugin-owned;
     the project archive owns durable project discovery, archive, restore, and
     reopen workflows;
     plugin management remains the app shell's independent **Plugins** destination

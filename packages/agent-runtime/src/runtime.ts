@@ -1,3 +1,9 @@
+import {
+  MAX_MUTATION_RECOVERY_FAILURES, BASH_PATCH_FAILURE_KEY,
+  RECOVERABLE_MUTATION_ERROR_CODES, mutationFailureKey, isPatchCommand,
+  mutationTerminationAdvice, mutationTerminationMessage,
+} from "./mutation-recovery.js";
+import { resolveMcpToolSelection } from "./mcp-tool-selection.js";
 import { TOOL_ACTIVATION_SECTION, toolDeclarationPolicy, toolActivationSection, restoredToolActivation, syncToolActivation, type ToolDeclarationPolicy } from "./fixed-tool-declarations.js";
 import { orderSystemRows, SystemTranscriptJournal } from "./system-transcript-journal.js";
 import { planWorkspaceRequiredResult } from "./plan-workspace-error.js";
@@ -8,9 +14,11 @@ import { requestExtensionUi } from "./extensions/ui-request.js";
 import { readLocalRequestErrorDetails } from "./local-request-errors.js";
 import { imageGenerationDescription, imageGenerationParameters } from "./image-generation/tool.js";
 import { todoWriteDescription, todoWriteParameters } from "./todo-tool.js";
+import { createJevClassifierTool } from "./jev-classifier-tool.js";
 import { scheduledToolParameters, scheduledToolDescriptions } from "./scheduled-tools.js";
 import { withPiFileOpToolNames } from "./pi-file-ops.js";
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import {
   settledDelegationMessage,
   taskMessageSnapshot,
@@ -32,6 +40,8 @@ import {
 import {
   isContextOverflow,
   getCurrentTools,
+  getToolStateChanges,
+  toToolDeclaration,
   Type,
   type Api,
   type AssistantMessage,
@@ -105,6 +115,7 @@ import {
   normalizeSubagentName,
   proposalKindForMode,
   resolveSubagentToolNames,
+  splitInlineContent,
   subagentModelKey,
   subagentToolsLabel,
   type ProposalKind,
@@ -129,6 +140,7 @@ import { buildSessionContext } from "./session-context.js";
 import { prepareCompaction } from "./pi-runtime-compaction-plan.js";
 import { compact } from "./pi-runtime-compaction-summary.js";
 import {
+  ESTIMATED_TEXT_CHARS_PER_TOKEN,
   estimateContextTokens,
   estimateTokens,
 } from "./pi-runtime-estimates.js";
@@ -190,12 +202,14 @@ import {
 } from "./output-cap.js";
 import {
   composeSubagentSystemPrompt,
+  MAX_SUBAGENT_REPORT_CHARS,
   SubagentRun,
   SUBAGENT_LIST_TOOL_NAME,
   SUBAGENT_STOP_TOOL_NAME,
   SUBAGENT_TOOL_NAME,
   SUBAGENT_WAIT_TOOL_NAME,
   type SubagentRunResult,
+  type SubagentToolOutcome,
 } from "./subagent.js";
 import {
   composeModeSystemPrompt,
@@ -290,6 +304,9 @@ export type RuntimePromptAttachment = Omit<AgentPromptAttachment, "kind"> & {
 
 export type RuntimePrompt = {
   text: string;
+  /** Explicit user selection, resolved against the host-provided tool catalog. */
+  mcpServerIds?: string[];
+  mcpToolNames?: string[];
   sessionMessage?: SessionMessageOrigin;
   attachments?: RuntimePromptAttachment[];
 };
@@ -309,39 +326,47 @@ function promptText(input: RuntimePrompt): string {
     : input.text;
 }
 
-function promptContent(input: string | RuntimePrompt): UserMessage["content"] {
-  if (typeof input === "string") return input;
-  const text = promptText(input);
-  const images = (input.attachments ?? []).filter(
+/** One provider image block for an attachment whose bytes crossed this turn. */
+function promptImageBlock(attachment: RuntimePromptAttachment): ImageContent {
+  return {
+    type: "image" as const,
+    data: attachment.data!,
+    mimeType: attachment.mimeType || "image/png",
+  };
+}
+
+/** Attachments carrying image bytes this call may inline for the model. */
+function promptImages(input: RuntimePrompt): RuntimePromptAttachment[] {
+  return (input.attachments ?? []).filter(
     (attachment) =>
       attachment.kind === "image" &&
       typeof attachment.data === "string" &&
       attachment.data.length > 0,
   );
-  if (!images.length) return text;
-  return [
-    ...(text.trim() ? [{ type: "text" as const, text }] : []),
-    ...images.map((attachment) => ({
-      type: "image" as const,
-      data: attachment.data!,
-      mimeType: attachment.mimeType || "image/png",
-    })),
-  ];
 }
 
-function promptImages(input: RuntimePrompt): ImageContent[] {
-  return (input.attachments ?? [])
-    .filter(
-      (attachment) =>
-        attachment.kind === "image" &&
-        typeof attachment.data === "string" &&
-        attachment.data.length > 0,
-    )
-    .map((attachment) => ({
-      type: "image" as const,
-      data: attachment.data!,
-      mimeType: attachment.mimeType || "image/png",
-    }));
+/**
+ * The prompt the model receives. An image the user placed between words carries
+ * the `@path` the Composer serialized, so it becomes a block at that position
+ * instead of following every text block (the pre-placement behavior, which is
+ * still what an image without an `inlinePath` gets).
+ */
+function promptContent(input: string | RuntimePrompt): UserMessage["content"] {
+  if (typeof input === "string") return input;
+  const text = promptText(input);
+  const images = promptImages(input);
+  if (!images.length) return text;
+  const { parts, trailing } = splitInlineContent(text, images);
+  const blocks: Array<{ type: "text"; text: string } | ImageContent> = parts.flatMap(
+    (part): Array<{ type: "text"; text: string } | ImageContent> =>
+      part.kind === "text"
+        ? part.text
+          ? [{ type: "text" as const, text: part.text }]
+          : []
+        : [promptImageBlock(part.attachment)],
+  );
+  blocks.push(...trailing.map(promptImageBlock));
+  return blocks;
 }
 
 function runtimeAttachmentFromMessage(
@@ -355,6 +380,9 @@ function runtimeAttachmentFromMessage(
     ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
     ...(attachment.size !== undefined ? { size: attachment.size } : {}),
     ...(attachment.text ? { text: attachment.text } : {}),
+    // Recorded placement: the message content names this image at that spot, so
+    // the restored prompt keeps the block there too.
+    ...(attachment.inlinePath ? { inlinePath: attachment.inlinePath } : {}),
     ...(data ? { data } : {}),
   };
 }
@@ -383,45 +411,6 @@ export function sessionReferenceBlock(attachment: RuntimePromptAttachment): stri
 // pi-ai's adapter retry is disabled here so setup and mid-stream 429s share
 // one runtime-owned budget instead of multiplying nested retry loops.
 const PROVIDER_REQUEST_MAX_RETRIES = 0;
-const MAX_MUTATION_RECOVERY_FAILURES = 3;
-const BASH_PATCH_FAILURE_KEY = "__bash_patch_command__";
-/**
- * Edit failures the line-anchored contract expects and already answers: each
- * one hands back the live tag, or the content of the lines it refused to write
- * blind (spec 18-line-anchored-edit-contract §9.3). One honest retry is the designed response, so each of
- * these codes gets a single free attempt per path before it counts toward the
- * recovery guard. Everything else — malformed ops, bad ranges, a no-op apply —
- * counts immediately, because a second one is the model guessing.
- */
-const RECOVERABLE_MUTATION_ERROR_CODES = new Set([
-  "EDIT_TAG_MISMATCH",
-  "EDIT_TAG_UNKNOWN",
-  "EDIT_LINES_UNSEEN",
-]);
-
-function mutationTerminationAdvice(
-  kind: "edit" | "patch-command",
-  errorCode?: string,
-): string {
-  if (kind === "patch-command") {
-    return "Use Edit on the specific lines instead of repeating a shell patch command.";
-  }
-  if (errorCode === "EDIT_PARSE_FAILED") {
-    return "Fix the Edit ops syntax and retry with a corrected payload; do not repeat the same ops. A PUT with body rows must end its header with `:`, for example `PUT 48.=48:`.";
-  }
-  if (errorCode === "EDIT_RANGE_INVALID") {
-    return "Correct the Edit range or operation overlap before retrying; re-reading is not needed unless the file changed.";
-  }
-  if (errorCode === "EDIT_NO_CHANGE") {
-    return "Send only changed body rows, or use CUT when the intended result is deletion.";
-  }
-  if (RECOVERABLE_MUTATION_ERROR_CODES.has(errorCode ?? "")) {
-    return errorCode === "EDIT_LINES_UNSEEN"
-      ? "Use the revealed lines for one unchanged retry when the reveal is complete; otherwise re-read the range and regenerate the Edit."
-      : "Re-read the live file and regenerate the Edit with the fresh tag and narrower anchors.";
-  }
-  return "Re-read the live file, regenerate a narrower Edit, and avoid repeating the same payload.";
-}
 export const TOOL_SEARCH_NAME = "ToolSearch";
 /** Stands in for a persisted tool row that never recorded a result. */
 const MISSING_TOOL_RESULT_PLACEHOLDER = "[no tool result recorded]";
@@ -491,6 +480,10 @@ export const ASK_TOOL_NAME = "asktool";
  * be re-read by id without re-running it.
  */
 const MAX_RETAINED_DELEGATIONS = 100;
+const DELEGATION_MODEL_OPT_IN_GUIDANCE =
+  'To authorize a model override, open Settings → Models, edit the service or account, expand its model Advanced settings, enable "Available for AI delegation", and save. Use an exact key from the delegation catalog; never guess a provider/model key.';
+const DELEGATION_DEFAULT_MODEL_GUIDANCE =
+  "Omit the `model` parameter on Task to use the definition's default model, or inherit the parent conversation's selected model when no default is pinned. Repeating the definition's own Default model key is the same as omitting `model`.";
 /**
  * `TaskWait` blocks the turn, and the model picks the timeout, so the ceiling
  * is what bounds how long a session can look hung with no way to intervene.
@@ -533,6 +526,8 @@ export type DelegationRecord = {
   /** True when `TaskStop` asked for this stop, so an aborted run reads as
    * `stopped` rather than `aborted`. */
   stopRequested: boolean;
+  /** System interruption preserves resume eligibility; explicit Stop wins. */
+  parentErrorInterrupted?: boolean;
   turns: number;
   toolCalls: number;
   lastToolName?: string;
@@ -741,7 +736,7 @@ const AGENT_CORE_TOOL_NAMES = new Set([
   "Edit",
   "Bash",
   ASK_TOOL_NAME,
-  // The slash menu answers a user-invoked `/skill-id` with an instruction to
+  // The slash menu answers a user-invoked `/skill:<skill-id>` with an instruction to
   // call `Skill { id }` on the first turn (ADR 0219), and a capability the
   // model has to go looking for is one it will not use. Registration keeps its
   // own gate: the tool only exists when the catalog is non-empty.
@@ -947,6 +942,8 @@ function contextFallbackReminder(): string {
 
 
 export type PluginToolDef = {
+  /** Present only on tools resolved from a user MCP server by Electron main. */
+  mcpServerId?: string;
   /** Full exposed name (`plugin_<pluginIdSafe>_<toolName>`, D015). */
   name: string;
   description?: string;
@@ -972,6 +969,8 @@ export type AgentRuntimeOptions = {
   thinkingLevel: SessionThinkingLevel;
   /** Persisted opt-in for retrying transient provider failures until success. */
   infiniteProviderRetry?: boolean;
+  /** TypeSafe Jev credential, resolved by Electron main only when enabled. */
+  jevApiKey?: string;
   systemPrompt?: string;
   /** pi-compatible SYSTEM.md / APPEND_SYSTEM.md resolved for the session (issue #542). */
   customSystemPrompt?: CustomSystemPrompt;
@@ -1036,6 +1035,7 @@ export type RuntimeMatchConfig = {
   mode: Mode;
   provider: RuntimeProviderConfig;
   thinkingLevel: SessionThinkingLevel;
+  jevApiKey?: string;
   pluginTools?: PluginToolDef[];
   pluginSkills?: PluginSkillDef[];
   trustedExtensions?: TrustedExtensionSpec[];
@@ -1099,23 +1099,6 @@ function boundedText(value: string, maxChars: number): string {
   const headChars = Math.ceil(available / 2);
   const tailChars = Math.floor(available / 2);
   return `${text.slice(0, headChars)}${marker}${text.slice(-tailChars)}`;
-}
-
-function mutationFailureKey(path: unknown): string {
-  return String(path).replaceAll("\\", "/").replace(/^\.\//, "");
-}
-
-function isPatchCommand(command: unknown): boolean {
-  if (typeof command !== "string") return false;
-  return (
-    /(?:^|[;&|]\s*)(?:env\s+|command\s+)?(?:\S+\/)?apply_patch(?:\s|$)/m.test(
-      command,
-    ) ||
-    /\bgit(?:\s+\S+)*\s+apply(?:\s|$)/m.test(command) ||
-    /(?:^|[;&|]\s*)(?:env\s+|command\s+)?(?:\S+\/)?patch(?:\s|$)/m.test(
-      command,
-    )
-  );
 }
 
 type CheckpointPersistResult = "persisted" | "oversized" | "failed";
@@ -1488,7 +1471,7 @@ function truncateUserMessageForCheckpoint(
     ...message,
     content: truncateTextForCheckpoint(
       userMessageTextForCheckpoint(message),
-      Math.max(1, tokenBudget) * 4,
+      Math.max(1, Math.floor(tokenBudget * ESTIMATED_TEXT_CHARS_PER_TOKEN)),
     ),
   };
 }
@@ -1816,6 +1799,7 @@ export class DesktopAgentRuntime {
   private providerRateLimitRetryAttempt = 0;
   /** Opt-in mode removes only the retry-count ceiling; abort and backoff stay intact. */
   private infiniteProviderRetry = false;
+  private jevApiKey?: string;
   private activeProviderRetryAttempt = 0;
   private providerRetryInProgress = false;
   private suppressProviderRetryRunEnd = false;
@@ -1858,6 +1842,8 @@ export class DesktopAgentRuntime {
   private mutationFailureCounts = new Map<string, number>();
   /** `<failure key> <error code>` pairs that already spent their free retry. */
   private mutationRecoveryGraces = new Set<string>();
+  /** Tool-call ownership keeps concurrent delegates' mutation budgets apart. */
+  private mutationOwners = new Map<string, string>();
   /** Why the recovery guard ended the turn, pending its visible error row. */
   private pendingMutationTermination?: {
     kind: "edit" | "patch-command";
@@ -1865,6 +1851,7 @@ export class DesktopAgentRuntime {
     lastErrorCode?: string;
   };
   private terminatingToolCalls = new Set<string>();
+  private delegateMutationTerminations = new Map<string, { code: string; message: string }>();
   private fullEntries: MessageEntry[];
   private readonly systemJournal = new SystemTranscriptJournal();
   private composedSections: Record<string, string> = {};
@@ -1875,7 +1862,7 @@ export class DesktopAgentRuntime {
   private acceptingSteering = false;
   private steeringContinuation = false;
   private steeringWaitAbort?: AbortController;
-  private pendingSteering = new Map<AgentMessage, string>();
+  private pendingSteering = new Map<AgentMessage, { id: string; toolNames: string[] }>();
   private pendingOverflow = false;
   private overflowRecoveryAttempted = false;
   private overflowRecoveryInProgress = false;
@@ -1913,6 +1900,7 @@ export class DesktopAgentRuntime {
     this.provider = opts.provider;
     this.thinkingLevel = clampThinkingLevel(opts.provider, opts.thinkingLevel);
     this.infiniteProviderRetry = opts.infiniteProviderRetry === true;
+    this.jevApiKey = opts.jevApiKey;
     this.host = opts.host;
     this.onDiagnostic = opts.onDiagnostic ?? (() => undefined);
     this.hostCloseUnsubscribe = this.host.onClose?.(() => {
@@ -2142,6 +2130,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
           convertToLlm(this.dropDuplicateToolCalls(messages)), this.reasoningReplayIdentity(),
         );
       },
+      prepareRequest: ({ context }) => this.prepareToolDeclarations(context),
       prepareNextTurnWithContext: (context, signal) =>
         this.prepareNextTurn(context, signal),
       afterToolCall: async (context) => this.afterToolCall(context),
@@ -2270,6 +2259,27 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     );
   }
 
+  /** Steering is consumed after next-turn preparation; sync before dispatch. */
+  private prepareToolDeclarations(context: AgentContext): AgentLoopTurnUpdate {
+    const tools = this.declaredTools();
+    let messages = context.messages;
+    const changes = getToolStateChanges(getCurrentTools(messages), tools.map(toToolDeclaration));
+    if (changes.toolsAdded.length || changes.toolsRemoved.length) {
+      messages = [...messages, {
+        role: "system", content: "", ...changes, timestamp: Date.now(),
+      }];
+    }
+    if (this.trackToolActivation && this.declarationPolicy) {
+      messages = syncToolActivation(messages, toolActivationSection(
+        this.declarationPolicy.key, this.activeDeferredToolNames,
+      ));
+    }
+    for (const message of messages.slice(context.messages.length)) {
+      this.agent.state.messages.push(message);
+    }
+    return { context: { ...context, messages, tools } };
+  }
+
   private setAgentTools(tools: AgentTool[]): void {
     this.agent.state.tools = this.declarationPolicy?.tools ?? tools;
     if (this.trackToolActivation && this.declarationPolicy) {
@@ -2350,13 +2360,16 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
    */
   private resolveOwnToolOutcome({
     toolCall,
-  }: AfterToolCallContext): AfterToolCallResult | undefined {
+  }: AfterToolCallContext): SubagentToolOutcome | undefined {
     const terminate = this.terminatingToolCalls.delete(toolCall.id);
     const failed = this.failedHostToolCalls.delete(toolCall.id);
+    const error = this.delegateMutationTerminations.get(toolCall.id);
+    this.delegateMutationTerminations.delete(toolCall.id);
     if (!failed) return terminate ? { terminate: true } : undefined;
     return {
       isError: true,
       ...(terminate ? { terminate: true } : {}),
+      ...(error ? { error } : {}),
     };
   }
 
@@ -2558,6 +2571,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       !this.disposed &&
       providerMatches &&
       this.mode === config.mode &&
+      this.jevApiKey === config.jevApiKey &&
       this.thinkingLevel ===
         clampThinkingLevel(config.provider, config.thinkingLevel) &&
       current === next &&
@@ -2716,11 +2730,28 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   getTrustedExtensionReports() {
     return this.extensionRunner?.getLoadReports() ?? [];
   }
+  /**
+   * The working directory extensions see: the project root, or the session
+   * scratch for a temporary session. Scratch is otherwise created lazily by the
+   * first host tool call (D114), so it is created here; a failure leaves the
+   * path in place, because loading extensions must not fail the session.
+   */
+  private extensionCwd(): string {
+    if (this.projectPath) return this.projectPath;
+    if (!this.scratchDir) return process.cwd();
+    try {
+      mkdirSync(this.scratchDir, { recursive: true });
+    } catch {
+      // pi.exec reports the missing directory itself.
+    }
+    return this.scratchDir;
+  }
+
   private createExtensionBridge(): TrustedExtensionBridge {
     const runtime = this;
     return {
       sessionId: this.sessionId,
-      cwd: this.projectPath ?? process.cwd(),
+      cwd: this.extensionCwd(),
       getModel: () => runtime.model,
       setModel: (model, signal) => runtime.setExtensionModel(model, signal),
       modelRegistry: runtime.extensionModelRegistry(),
@@ -3232,6 +3263,9 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         signal,
         onUpdate,
       ) => {
+        const mutationPath = PATH_MUTATING_TOOLS.has(toolName) && isRecord(params) && typeof params.path === "string"
+          ? await mutationFailureKey(params.path, this.projectPath ?? this.scratchDir)
+          : undefined;
         await this.loadPathInstructions(toolName, params);
         const isBash = toolName === "Bash";
         const timeoutMs = isBash ? commandTimeoutMs(params) : undefined;
@@ -3386,17 +3420,21 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
           toolName === "Edit" &&
           failedToolExecution &&
           typeof recordParams?.path === "string"
-            ? mutationFailureKey(recordParams.path)
+            ? recordParams.path
             : undefined;
         const failedPatchCommand =
           toolName === "Bash" &&
           failedToolExecution &&
           isPatchCommand(recordParams?.command);
-        const failureKey = failedEditPath
-          ? failedEditPath
+        const mutationOwner = this.mutationOwners.get(toolCallId);
+        const targetKey = failedEditPath
+          ? mutationPath
           : failedPatchCommand
             ? BASH_PATCH_FAILURE_KEY
             : undefined;
+        const failureKey = targetKey
+          ? `${mutationOwner ?? "parent"}\0${targetKey}`
+          : undefined;
         const mutationFailureKind = failedEditPath
           ? "edit"
           : failedPatchCommand
@@ -3431,12 +3469,15 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         // progress, so it clears that path's history instead of leaving one
         // stale strike to terminate the next unrelated failure.
         if (!failureKey && result.ok) {
-          const succeededKey =
+          const succeededTarget =
             PATH_MUTATING_TOOLS.has(toolName) && typeof recordParams?.path === "string"
-              ? mutationFailureKey(recordParams.path)
+              ? mutationPath
               : toolName === "Bash" && isPatchCommand(recordParams?.command)
                 ? BASH_PATCH_FAILURE_KEY
                 : undefined;
+          const succeededKey = succeededTarget
+            ? `${mutationOwner ?? "parent"}\0${succeededTarget}`
+            : undefined;
           if (succeededKey !== undefined) {
             this.mutationFailureCounts.delete(succeededKey);
             for (const key of this.mutationRecoveryGraces) {
@@ -3451,13 +3492,25 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
           // The loop stops after this batch, so nothing downstream would
           // explain why. Hold the reason for agent_end to turn into a visible
           // row instead of a turn that just ends.
-          this.pendingMutationTermination = {
-            kind: mutationFailureKind ?? "edit",
-            target: failedEditPath ?? "the patch command",
-            ...(typeof result.errorCode === "string"
-              ? { lastErrorCode: result.errorCode }
-              : {}),
-          };
+          if (!mutationOwner) {
+            this.pendingMutationTermination = {
+              kind: mutationFailureKind ?? "edit",
+              target: failedEditPath ?? "the patch command",
+              ...(typeof result.errorCode === "string"
+                ? { lastErrorCode: result.errorCode }
+                : {}),
+            };
+          } else {
+            const kind = mutationFailureKind ?? "edit";
+            this.delegateMutationTerminations.set(toolCallId, {
+              code: "MUTATION_RETRY_BUDGET_EXHAUSTED",
+              message: mutationTerminationMessage(
+                kind,
+                failedEditPath ?? "the patch command",
+                result.errorCode,
+              ),
+            });
+          }
         }
         const rawContent = result.content;
         const imageBlocks: Array<{ type: "image"; data: string; mimeType: string }> = [];
@@ -3649,6 +3702,10 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       tools.push("PluginScaffold", "PluginPack", "GenerateImages", ...Object.keys(scheduledToolParameters));
     }
     const builtins = tools.map(exec);
+    const jevTools: AgentTool[] =
+      this.mode === "agent" && this.jevApiKey
+        ? [createJevClassifierTool(this.jevApiKey)]
+        : [];
 
     // Plugins contribute Agent tools by default. Plan/Goal modes only
     // expose plugins that declare plan-safe actions (ADR 0211); the
@@ -3725,6 +3782,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     const extensionTools = this.extensionRunner?.getAgentTools() ?? [];
     return [
       ...builtins,
+      ...jevTools,
       askTool,
       ...pluginTools,
       ...skillTools,
@@ -3933,12 +3991,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
             ? params.query.trim()
             : "";
         const matches = this.findDeferredTools(query);
-        const activated = matches.filter(
-          (name) => !this.activeDeferredToolNames.has(name),
-        );
-        for (const name of activated) {
-          this.activeDeferredToolNames.add(name);
-        }
+        const activated = this.activateDeferredTools(matches);
         const available = [...this.deferredToolNames];
         const availablePreview = available.slice(0, MAX_TOOL_SEARCH_RESULT_NAMES);
         const remaining = available.length - availablePreview.length;
@@ -4136,8 +4189,8 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     if (keys.length === 0) {
       return [
         "No delegation model overrides are configured.",
-        "Omit the `model` parameter on Task to use the definition's default model, or inherit the parent conversation's selected model when no default is pinned.",
-        "Repeating a definition's own Default model key is the same as omitting `model`. Never invent a provider/model key.",
+        DELEGATION_DEFAULT_MODEL_GUIDANCE,
+        DELEGATION_MODEL_OPT_IN_GUIDANCE,
       ].join(" ");
     }
     const lines: string[] = [
@@ -4399,7 +4452,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
               "Only pass `model` when deliberately overriding the definition default with a listed delegation model; otherwise omit it. Repeating the definition's own Default model key, or the exact parent provider/model, is the same as omitting `model`.",
             ]
           : [
-              "No delegation model overrides are configured. Omit `model` to use the definition's default, or the parent model when no default is pinned. Repeating a definition's own Default model key is the same as omitting `model`; never invent a provider/model key.",
+              `No delegation model overrides are configured. ${DELEGATION_DEFAULT_MODEL_GUIDANCE} ${DELEGATION_MODEL_OPT_IN_GUIDANCE}`,
             ]),
         "`task` is the delegate's only instruction. It cannot see this conversation, and you cannot correct it while it runs, so state the goal, the paths and facts it cannot infer, and exactly what to report back.",
         "To run delegates concurrently, emit several Task calls in one assistant message. A message that mixes Task with any other tool runs one call at a time. You may keep working or talk to the user while they run; the runtime delivers their reports when they finish. Call TaskStop only to cancel.",
@@ -4501,7 +4554,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
             const available = this.availableSubagentModelKeys();
             const hint = available.length
               ? ` Available: ${available.join(", ")}.`
-              : " No models are configured for delegation.";
+              : ` No delegation model overrides are configured. ${DELEGATION_DEFAULT_MODEL_GUIDANCE} ${DELEGATION_MODEL_OPT_IN_GUIDANCE}`;
             return this.subagentToolError(
               toolCallId,
               `Model "${modelOverride}" is not available for delegation.${hint}`,
@@ -4642,7 +4695,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         this.delegations.set(delegationId, record);
         let subagentRun: SubagentRun;
         try {
-          const scopedTools = this.scopeDelegateTools(tools, definition);
+          const scopedTools = this.scopeDelegateTools(tools, definition, delegationId);
           subagentRun = new SubagentRun({
             definition,
             sessionId: this.sessionId,
@@ -4759,23 +4812,25 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     };
   }
 
-  /** Wrap a delegate's tools so each call carries the definition's permission
-   * scope to host-core (ADR 0089). Keyed by tool call id, so concurrent
-   * delegates with different scopes never cross over. */
+  /** Wrap a delegate's tools with its permission and mutation-recovery scope. */
   private scopeDelegateTools(
     tools: AgentTool[],
     definition: SubagentDefinition,
+    mutationOwner: string,
   ): AgentTool[] {
     const scope = definition.permission ?? DEFAULT_SUBAGENT_PERMISSION;
-    if (scope === DEFAULT_SUBAGENT_PERMISSION) return tools;
     return tools.map((tool) => ({
       ...tool,
       execute: async (toolCallId, args, signal, onUpdate) => {
-        this.delegatePermissionScopes.set(toolCallId, scope);
+        this.mutationOwners.set(toolCallId, mutationOwner);
+        if (scope !== DEFAULT_SUBAGENT_PERMISSION) {
+          this.delegatePermissionScopes.set(toolCallId, scope);
+        }
         try {
           return await tool.execute(toolCallId, args, signal, onUpdate);
         } finally {
           this.delegatePermissionScopes.delete(toolCallId);
+          this.mutationOwners.delete(toolCallId);
         }
       },
     }));
@@ -4787,6 +4842,15 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     result: SubagentRunResult,
   ): void {
     if (record.status !== "running") return;
+    if (result.status === "aborted" && record.parentErrorInterrupted && !record.stopRequested) {
+      const message = `The parent turn failed and interrupted this delegation. Continue it with Task(resume: "${record.delegationId}").`;
+      result = {
+        ...result,
+        status: "failed",
+        report: truncateTextWithMarker(`${message}\n\n${result.report}`, MAX_SUBAGENT_REPORT_CHARS, "\n[report truncated]\n"),
+        error: { code: "SUBAGENT_PARENT_FAILED", message, resumeId: record.delegationId },
+      };
+    }
     record.status =
       record.stopRequested && result.status === "aborted"
         ? "stopped"
@@ -4805,6 +4869,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       // its calls left behind rather than pinning those arguments for the session.
       for (const toolCallId of record.pendingToolCallIds ?? []) {
         this.delegateToolCalls.delete(toolCallId);
+        this.delegateMutationTerminations.delete(toolCallId);
       }
       record.pendingToolCallIds = undefined;
       this.publishDelegationSettlement(record);
@@ -4813,6 +4878,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         `[agent-runtime] delegation settlement side effect failed (session=${this.sessionId} delegation=${record.delegationId})\n`,
       );
     } finally {
+      this.clearMutationRecovery(record.delegationId);
       this.refreshDelegationWait();
       this.refreshResumablePrompt();
       this.pruneFinishedDelegations();
@@ -4852,8 +4918,9 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   }
 
   /** Abort every running delegation (user Stop, dispose, parent fatal error). */
-  private abortRunningDelegations(): void {
+  private abortRunningDelegations(parentErrorInterrupted = false): void {
     for (const record of this.runningDelegations()) {
+      record.parentErrorInterrupted = parentErrorInterrupted;
       record.abort();
     }
   }
@@ -4897,7 +4964,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     this.acceptingSteering = false;
     this.steeringWaitAbort?.abort();
     this.retainPendingSteering();
-    this.abortRunningDelegations();
+    this.abortRunningDelegations(!this.runCancelled && !this.disposed);
     this.delegationWaitTargets = undefined;
     this.clearAgentActivity();
   }
@@ -5433,6 +5500,22 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
         };
       },
     };
+  }
+
+  private selectedMcpTools(input: string | RuntimePrompt): string[] {
+    return resolveMcpToolSelection(
+      typeof input === "string" ? undefined : input.mcpServerIds,
+      this.pluginTools,
+      name => this.toolCatalog.has(name) && this.isToolAllowedInMode(name),
+      typeof input === "string" ? undefined : input.mcpToolNames,
+    );
+  }
+
+  private activateDeferredTools(names: readonly string[]): string[] {
+    const activated = names.filter(name => this.deferredToolNames.has(name)
+      && !this.activeDeferredToolNames.has(name));
+    for (const name of activated) this.activeDeferredToolNames.add(name);
+    return activated;
   }
 
   private findDeferredTools(query: string): string[] {
@@ -6003,6 +6086,16 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     );
   }
 
+  private clearMutationRecovery(owner: string): void {
+    const prefix = `${owner}\0`;
+    for (const key of this.mutationFailureCounts.keys()) {
+      if (key.startsWith(prefix)) this.mutationFailureCounts.delete(key);
+    }
+    for (const key of this.mutationRecoveryGraces) {
+      if (key.startsWith(prefix)) this.mutationRecoveryGraces.delete(key);
+    }
+  }
+
   /**
    * Clear the per-run recovery state that every entry point driving the agent
    * loop must start from. Each recovery arms itself mid-run by setting a
@@ -6035,10 +6128,8 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     this.suppressProgressTurnRunEnd = false;
     this.providerRetryAbort?.abort();
     this.providerRetryAbort = undefined;
-    this.mutationFailureCounts.clear();
-    this.mutationRecoveryGraces.clear();
+    this.clearMutationRecovery("parent");
     this.pendingMutationTermination = undefined;
-    this.terminatingToolCalls.clear();
     this.turnHadError = false;
   }
 
@@ -7716,9 +7807,13 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       }
       case "message_end": {
         if (event.message.role === "user") {
-          const steeringId = this.pendingSteering.get(event.message);
-          const id = steeringId ?? this.pendingUserMessageId ?? randomUUID();
-          if (steeringId) {
+          const steering = this.pendingSteering.get(event.message);
+          const id = steering?.id ?? this.pendingUserMessageId ?? randomUUID();
+          if (steering) {
+            if (steering.toolNames.length) {
+              this.activateDeferredTools(steering.toolNames);
+              this.setAgentTools(this.activeTools());
+            }
             this.pendingSteering.delete(event.message);
             // User input is now part of the model context: whatever the model
             // says next answers the user, not a completion notice, so the
@@ -7976,10 +8071,17 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
             this.streamStartedAt = undefined;
             break;
           }
+          // Pi 1.1.0 measures from request start with a monotonic clock. Keep the
+          // sidecar stopwatch for stopped and older streams that have no final message.
+          const piDurationMs = event.message.durationMs;
           const responseDurationMs =
-            this.streamStartedAt !== undefined
-              ? Math.max(0, endedAt - this.streamStartedAt)
-              : undefined;
+            typeof piDurationMs === "number" &&
+            Number.isFinite(piDurationMs) &&
+            piDurationMs > 0
+              ? piDurationMs
+              : this.streamStartedAt !== undefined
+                ? Math.max(0, endedAt - this.streamStartedAt)
+                : undefined;
           const responseOutputTokens =
             aborted && (!usage || usage.outputTokens <= 0)
               ? estimateVisibleResponseOutputTokens({
@@ -8173,13 +8275,11 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       termination.kind,
       termination.lastErrorCode,
     );
-    const lastError = termination.lastErrorCode
-      ? ` Last error: ${termination.lastErrorCode}.`
-      : "";
-    const message =
-      termination.kind === "edit"
-        ? `Stopped after ${MAX_MUTATION_RECOVERY_FAILURES} failed Edit attempts on ${termination.target}.${lastError} ${recovery}`
-        : `Stopped after ${MAX_MUTATION_RECOVERY_FAILURES} failed patch commands.${lastError} ${recovery}`;
+    const message = mutationTerminationMessage(
+      termination.kind,
+      termination.target,
+      termination.lastErrorCode,
+    );
     const error = {
       code: "MUTATION_RETRY_BUDGET_EXHAUSTED",
       message,
@@ -8402,6 +8502,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   ): Promise<{ turnId: string }> {
     if (this.disposed) throw new Error("runtime disposed");
     this.assertNotRunning();
+    const selectedTools = this.selectedMcpTools(input);
     const modelInput = typeof input !== "string" && input.sessionMessage
       ? { ...input, text: formatSessionMessage(input.text, input.sessionMessage), sessionMessage: undefined }
       : input;
@@ -8415,6 +8516,10 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     // Capabilities and path-scoped instruction claims belong to one prompt.
     this.subagentOverrideProviders = {};
     this.resetDeferredToolsForPrompt();
+    if (selectedTools.length) {
+      this.activateDeferredTools(selectedTools);
+      this.setAgentTools(this.activeTools());
+    }
     this.refreshResumablePrompt();
     this.pathInstructionClaims.clear();
     this.pendingUserMessageId = userMessageId;
@@ -8487,7 +8592,10 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       if (typeof modelInput === "string") {
         await this.agent.prompt(modelInput);
       } else {
-        await this.agent.prompt(promptText(modelInput), promptImages(modelInput));
+        // pi's `(text, images)` form appends every image after the text; the
+        // message form keeps an inline image block where the user placed it,
+        // which is the same content `promptContent` already built above.
+        await this.agent.prompt(incomingUserMessage);
       }
       await this.waitForIdleAndSteering();
       void this.extensionRunner?.emit("agent_settled", { type: "agent_settled" });
@@ -8612,7 +8720,8 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
   steer(input: RuntimePrompt, expectedTurnId: string, message: UiMessage): { accepted: boolean; turnId: string } {
     this.steeringContext(expectedTurnId);
     const queued: AgentMessage = { role: "user", content: promptContent(input), timestamp: Date.now() };
-    this.pendingSteering.set(queued, message.id);
+    const toolNames = this.selectedMcpTools(input);
+    this.pendingSteering.set(queued, { id: message.id, toolNames });
     this.agent.steer(queued);
     this.steeringWaitAbort?.abort();
     // Main persists this echo through the same outbox as assistant messages.
@@ -8627,9 +8736,9 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
 
   private retainPendingSteering(): void {
     this.agent.clearSteeringQueue();
-    for (const [message, id] of this.pendingSteering) {
+    for (const [message, pending] of this.pendingSteering) {
       if (!this.agent.state.messages.includes(message)) this.setAgentMessages([...this.agent.state.messages, message]);
-      this.appendLiveEntry(id, message);
+      this.appendLiveEntry(pending.id, message);
     }
     this.pendingSteering.clear();
 
@@ -8723,6 +8832,8 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
     this.failedHostToolCalls.clear();
     this.mutationFailureCounts.clear();
     this.mutationRecoveryGraces.clear();
+    this.mutationOwners.clear();
+    this.delegateMutationTerminations.clear();
     this.pendingMutationTermination = undefined;
     this.terminatingToolCalls.clear();
     this.delegateToolCalls.clear();

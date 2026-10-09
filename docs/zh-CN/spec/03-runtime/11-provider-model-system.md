@@ -118,7 +118,13 @@ OpenAI 风格的 Copilot 线路 API 仍将令牌作为请求密钥签名；所�
 `forceAdaptiveThinking: true`。这些模型会以 HTTP 400 拒绝
 `thinking.type=enabled`，而 Pi catalog 不携带 pi-ai 的 compat 记录，缺少该标志时
 pi-ai 会回落到 budget 思考。仍发布 `budget_tokens` 的模型保持 budget 思考，显式的
-目录 `compat` 记录会被保留。
+目录 `compat` 记录会被保留。对于已启用推理、但没有 `thinkingProtocol` 或推理选项的
+非 OAuth 通用模型配置，如果模型 ID 含有 `claude` 且 wire API 为 Anthropic Messages，也默认使用
+adaptive 思考；这覆盖缺少元数据的未发布 Claude 中继模型 ID。仅实时提供的 OAuth 厂商模型
+保留原有回退行为。显式的
+`ModelBinding.thinkingProtocol`（`legacy` 或 `adaptive`）优先级最高，其次是显式的
+模型级 `compat.forceAdaptiveThinking`，再之后才根据目录元数据或 Claude ID 回退规则判断。
+对于目录中已发布的模型，模型设置会根据相同的 effort/budget 元数据推导并显示协议。
 
 目录无法识别的 Anthropic Messages 行（例如某个自定义网关 URL 提供多家发布方都列出的
 模型 ID）仍回退到通用模型形状，但当 Anthropic 自己的 Pi catalog 记录中存在完全相同的
@@ -174,7 +180,7 @@ PI-Desktop 不得把用户永久限制在一份简短的固定模型列表上。
 
 ### 6.2 Catalog responsibilities
 
-1. pi-ai 1.0.1 Providers/Models own published metadata, transport, thinking
+1. pi-ai 1.1.0 Providers/Models own published metadata, transport, thinking
    support and native operation types. Electron's historically named
    `ModelsDevCatalog` is an account-aware adapter over this public API.
 2. Startup is cache-only and disables ambient environment/file credentials.
@@ -381,7 +387,7 @@ Codex CLI 版本（`CODEX_MODELS_CLIENT_VERSION`），账户模型缺失时调�
 
 ### Anthropic token 端点限流
 
-固定版本 pi-ai 1.0.1 的仓库补丁为 Anthropic 授权码交换与刷新提供同一套
+固定版本 pi-ai 1.1.0 的仓库补丁为 Anthropic 授权码交换与刷新提供同一套
 有限策略：只重试明确的 HTTP 429，最多总共三次请求。先等待至少 1 秒、再
 等待至少 2 秒；若 `Retry-After` 给出更长的秒数或 HTTP 日期，则遵守该时间。
 服务器要求的等待超出剩余预算时结束本次尝试，不缩短等待后提前重试。
@@ -452,8 +458,8 @@ type ModelDescriptor = {
 - 模型卡片默认保持紧凑，按需展开 metadata/configuration，并让对话框操作留在
   可独立滚动的内容区域之外
 - 不要暴露原始的目录兼容性内部细节或提供商机密
-- 设置 → 导入可以从 Claude Code、Codex、OpenCode、Pi 和 CC Switch 复制
-  provider/model 行。扫描是显式的。已存储的 API key 会被复制进宿主密钥库；
+- 设置 → 模型的“提供商”区块提供内嵌扫描，可从 Claude Code、Codex、OpenCode、Pi
+  和 CC Switch 导入 provider/model 行。扫描是显式的。已存储的 API key 会被复制进宿主密钥库；
   OAuth/订阅授权则不会。重复导入时只会跳过等价提供商（归一化 URL + API
   风格 + 相同凭据）；同一端点的不同凭据仍保持为独立提供商。
   不涉及协议或模式版本升级（D342 / ADR 0179 / ADR 0188）

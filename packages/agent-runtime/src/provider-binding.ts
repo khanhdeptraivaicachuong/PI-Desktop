@@ -349,6 +349,17 @@ export function buildProviderModel(
     : undefined;
   const autoAdaptiveThinking =
     catalogModel.thinkingProtocol === undefined && requiresAdaptiveThinking(catalogModel);
+  // A generic model projection can still be present when the catalog misses a
+  // model (#926). OAuth vendor rows may expose live-only Claude ids, so only
+  // use the id heuristic for non-OAuth rows without protocol or options.
+  const customClaudeId =
+    catalog?.source === "generic" &&
+    provider.authKind !== "oauth" &&
+    catalogModel.reasoning === true &&
+    catalogModel.thinkingProtocol === undefined &&
+    (catalogModel.reasoningOptions?.length ?? 0) === 0 &&
+    binding.api === "anthropic-messages" &&
+    /claude/i.test(provider.modelId);
   // OpenAI-compatible gateways are not guaranteed to implement the newer
   // `developer` role, even when the selected model supports reasoning. Keep
   // the broadest Chat Completions wire shape as the default; a catalog/model
@@ -365,11 +376,18 @@ export function buildProviderModel(
           supportsDeveloperRole: catalogModel.compat?.supportsDeveloperRole === true,
         }
       : binding.api === "anthropic-messages" &&
-          (catalogModel.thinkingProtocol === "adaptive" || autoAdaptiveThinking)
+          (catalogModel.thinkingProtocol === "adaptive" ||
+            autoAdaptiveThinking ||
+            customClaudeId)
         ? {
             ...(catalogModel.compat ?? {}),
             ...(thinkingProtocolCompat ?? {}),
-            forceAdaptiveThinking: true,
+            // Explicit protocol selection wins, followed by per-model compat;
+            // the Claude-id heuristic supplies only the missing default.
+            forceAdaptiveThinking:
+              thinkingProtocolCompat?.forceAdaptiveThinking ??
+              catalogModel.compat?.forceAdaptiveThinking ??
+              true,
           }
         : thinkingProtocolCompat
           ? { ...(catalogModel.compat ?? {}), ...thinkingProtocolCompat }

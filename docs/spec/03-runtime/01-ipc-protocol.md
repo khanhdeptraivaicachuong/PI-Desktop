@@ -53,7 +53,6 @@ Examples:
 - `pi-desktop/agent/event/message`
 - `pi-desktop/agent/askTool/resolve`
 - `pi-desktop/session/list`
-- `pi-desktop/session/summarizeTitle`
 - `pi-desktop/project/open`
 - `pi-desktop/project/pickFolders`
 - `pi-desktop/project/clone`
@@ -137,6 +136,8 @@ type AgentPromptAttachment = {
  kind: "image" | "file";
  mimeType?: string;
  size?: number;
+ /** `@path` text this attachment occupies inline in `content`; main-filled. */
+ inlinePath?: string;
 };
 
 type AgentPromptResponse = {
@@ -210,7 +211,12 @@ older images use the existing safe `@path` fallback. Unknown/custom models
 without an explicit image override, non-vision models, oversized images, and
 unavailable refs also use the safe fallback. Main uses streamed hashing and file
 copying for oversized images. The durable user message stores `content` plus
-attachment metadata/ref, never base64.
+attachment metadata/ref, never base64. An image the draft named inline also
+carries that `@path` text as `inlinePath` on the durable message and on the
+sidecar attachment: the runtime keeps the prompt content blocks in the user's
+order instead of appending every image after the text, and the transcript
+renders the image at that position. An attachment without it keeps the trailing
+position.
 Invalid attachment paths fail with `PATH_OUTSIDE_WORKSPACE`.
 
 Regenerate history (D109) also uses session channels:
@@ -959,12 +965,25 @@ type ToolTokenUsage = {
 
 type SessionDetail = SessionSummary & {
   messages: UiMessage[];
+  /** Authoritative metadata for SubmitPlan/SubmitGoal calls in this page. */
+  planHistory?: Array<{ proposal: PlanProposal; superseded: boolean }>;
   /** Zero-based start offset when the renderer received a bounded page. */
   messageStart?: number;
   /** True when an older page can be requested with session.get. */
   hasMoreBefore?: boolean;
 };
 ```
+
+Historical contract reads attach `planHistory` only for submission call IDs in
+that session's returned page. SQLite supplies the current approval status,
+exact Markdown snapshot, artifact path, and same-kind supersession; original
+JSONL tool results stay immutable. Display content caps do not truncate these
+bounded contract snapshots (submission already enforces the Markdown limit).
+This additive field is optional for older/native hosts and empty forks: no
+approval record is copied or inferred from tool output or artifact filenames.
+The renderer may attach it to `UiMessage.planHistory` as display-only metadata;
+it must never persist that projection as model evidence.
+
 
 `messageCount` is the host-authoritative count of messages in the current
 canonical transcript. The renderer uses it to distinguish an empty durable
@@ -1046,13 +1065,15 @@ Minimal interface:
 - `session/rename({ id, title }) -> { ok: boolean }` trims the title and
   accepts 1–80 Unicode code points. Blank or overlong titles are rejected as
   `INVALID_PARAMS`; a successful rename changes only session metadata and does
-  not alter transcript content, message count, or activity timestamps.
-- `session/summarizeTitle({ sessionId, userPrompt, assistantReply? }) ->
-  { title }` validates the session and prompt in Electron main, resolves that
-  session's provider/model, and runs one `thinkingLevel: "off"` one-shot
-  completion. It never writes the title itself; the renderer applies the
-  result through `session/rename` only while the session still has a default or
-  first-prompt fallback title. A one-shot failure leaves that fallback intact.
+  not alter transcript content, message count, or activity timestamps. It marks
+  the title source as manual so an installed title plugin cannot replace it.
+- `session/deriveTitle({ id, title }) -> { updated: boolean }` applies the
+  deterministic first-prompt fallback. Host-core accepts it only while the
+  stored title is still a recognized placeholder with the `default` title
+  source, and it is applied only to metadata: `updated_at`, transcript content,
+  and message count are unchanged. The derived title keeps that source, so an
+  installed title plugin may still replace it; `session/rename` remains the
+  user-owned path.
 - `session/getScratchPath({ sessionId }) -> { path }` returns the session
   scratch directory `<data_dir>/scratch/<sessionId>/` without creating it.
 - `session/openScratchPath({ sessionId }) -> { ok, path }` resolves that same
@@ -1143,8 +1164,10 @@ assistant message before `message_end`. Error messages persist with the
 transcript but are excluded from restored model context.
 
 The context inspector consumes two additive usage signals. `MessageUsage` is
-the provider-reported assistant usage and `responseDurationMs` is the elapsed
-sidecar stream time used to display output tokens per second. `ToolTokenUsage`
+the provider-reported assistant usage and `responseDurationMs` is the
+elapsed request duration used to display output tokens per second. Completed
+responses use pi-ai 1.1.0's monotonic `AssistantMessage.durationMs`; when
+that value is unavailable, the sidecar stopwatch remains the fallback. `ToolTokenUsage`
 is a runtime estimate from the tool call arguments and result; providers do not
 report per-tool allocation, so the renderer labels these rows as estimates and
 never merges them into the exact provider total. Older peers may omit all of
@@ -1486,6 +1509,12 @@ returns its status to the MCP editor.
 The desktop's `mcp.list` IPC response probes previously ready remote connections
 before reporting their status. If a server no longer responds, its row reports
 `failed` instead of retaining a stale `ready` status; Test connection retries it. A failed settings probe does not interrupt an in-flight tool call; Test connection closes the old client before retrying.
+Each user stdio MCP child starts with the resolved workspace path of the
+session that uses it as its working directory. Sessions in the same workspace
+share that child; sessions in different workspaces use separate children.
+A projectless session uses the user's home directory. Idle cached connections
+may be closed under the runtime's connection limit and are reconnected when
+the session needs them again.
 Stopping a session aborts its in-flight user MCP tool calls. The client sends
 `notifications/cancelled` for each active request without closing a connection
 used by other sessions; a completed or canceled tool call is never replayed.
@@ -1833,7 +1862,13 @@ Renderer IPC kept for the Plan-safe preview facade and URL fallback:
   shallowest path. Relative and indexed candidates must resolve to regular files
   whose real paths remain inside their answering root; an exact path through an
   escaping or dangling link cannot fall back to a same-name indexed file. The
-  files-panel ignore set applies. A reference that matches
+  files-panel ignore set applies. An absolute reference may also name a store
+  the app reads without searching it: the whole scratch store
+  (`<data_dir>/scratch/`) holds every session's files — a generated image is
+  clicked from whatever conversation is open — and the read guards (`fs/read`,
+  `fs/open`, the image reader) already accept it, so such a path completes
+  instead of reporting a restriction. A shorthand never completes from that
+  wider store; it still searches the session's own one. A reference that matches
   nothing returns `match: null`; an absolute path outside every allowed root
   also returns `reason: "outside-allowed-roots"`, without trying a same-name
   file inside a root. Resolving never opens anything (ADR 0262).
@@ -1942,8 +1977,9 @@ reports `isFullScreen() === false` while it uses display bounds for that mode;
 the window-control state and fullscreen event use the tracked value.
 `window/setBackgroundColor` remains Electron-local and main-renderer-only. Its
 optional `cornerRadius` is an integer from 0 to 24 DIP; omission restores the
-Windows main-window default of 4. Main applies the native shape on theme
-selection and resize, and clears the corner cutouts during maximize/fullscreen.
+Windows main-window default of 12 DIP, matching the global `--radius-md` token.
+Main applies the native shape on theme selection and resize, and clears the
+corner cutouts during maximize/fullscreen.
 Malformed values fail with `INVALID_ARGUMENT` before changing the background.
 Plugin panel chrome uses a separate Electron-local
 `pi-plugin-panel-window-control` channel with the same four semantic actions,
@@ -2282,13 +2318,17 @@ error model. Both the text payload and `structuredContent` are size-bounded to
 replaced by `{truncated: true, reason: "MCP_RESULT_LIMIT", preview: "<the first
 512 KiB of the JSON>"}`, so an external caller can never receive a silently
 shortened payload. If an oversized answer comes from `session/get`
-(`pi_session_get`) and has a `compaction` record, Main projects that record to
-the compact identity (`createdAt` and `details.generation`) and checks the size
-again before returning the truncation envelope. This lets a long session's
-transcript survive when its unbounded `ContextCompactionRecord` (`summary` /
-`retainedTail` / `details.modifiedFiles`) alone caused the overflow. Results
-already under the limit retain their full compaction details, and the desktop's
-own session detail is unchanged.
+(`pi_session_get`) and carries a `compaction` record or a `compactions` history,
+Main projects each record to the compact identity (`createdAt` and
+`details.generation`) and checks the size again before returning the truncation
+envelope. This lets a long session's transcript survive when its unbounded
+`ContextCompactionRecord` (`summary` / `retainedTail` / `details.modifiedFiles`)
+alone caused the overflow — including the case where the newest `compaction` is
+already compact but the unbounded `compactions` history alone still exceeds the
+limit, which no `messageLimit` / `contentLimit` reduction can fix because the
+overflow is independent of the transcript page. Results already under the limit
+retain their full compaction details, and the desktop's own session detail is
+unchanged.
 
 The six `session/collaboration/*` operations are first-party-plugin-only: they
 require an authenticated plugin tool invocation context, so they appear in
@@ -2377,7 +2417,9 @@ unchanged. See [provider configuration](12-provider-config-schema.md).
 ## 15. Cloud configuration sync
 
 The Settings → Cloud sync page uses the following renderer-to-Main channels;
-all are forwarded to the Host-owned `configSync.*` RPC methods:
+all are forwarded to the Host-owned `configSync.*` RPC methods. The page is a
+development-build-only surface for now; the channels and their Host contracts
+are unchanged:
 
 | IPC channel | Host method | contract |
 |---|---|---|

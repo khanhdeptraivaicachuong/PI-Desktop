@@ -31,13 +31,6 @@ const scheduledFormatSource = await readFile(
   "utf8",
 );
 const pluginsPageSource = await readPluginsSource();
-const marketplaceSettingsSource = await readFile(
-  new URL(
-    "../src/components/plugins/MarketplaceSourceSettings.tsx",
-    import.meta.url,
-  ),
-  "utf8",
-);
 // API services and vendor accounts share one list (D625).
 const serviceListSource = await readFile(
   new URL("../src/components/settings/ServiceList.tsx", import.meta.url),
@@ -150,7 +143,7 @@ test("Basics and AI tabs expose their respective app and AI controls", () => {
   assert.match(aiSource, /infiniteProviderRetry: settings\.infiniteProviderRetry !== true/);
   assert.match(aiSource, /LargePasteThresholdRow/);
   assert.match(aiSource, /ContextUsageDisplayRow/);
-  assert.match(aiSource, /PromptEnhancementCard/);
+  assert.doesNotMatch(aiSource, /PromptEnhancementCard|promptEnhancement/);
   assert.doesNotMatch(aiSource, /EnhancementModelCard/);
   assert.match(
     settingsPageSource,
@@ -286,28 +279,6 @@ test("model configuration keeps model defaults; AI owns app behavior defaults", 
   assert.doesNotMatch(providersSource, /EnhancementModelCard/);
 });
 
-test("default model selector shows every configured model under its provider", () => {
-  const defaultModelPicker =
-    providersSource.match(
-      /visibleDefaultModelOptions\.map\(\(\{ provider, modelId \}, index\) => \{[\s\S]*?<\/li>/,
-    )?.[0] ?? "";
-  assert.notEqual(defaultModelPicker, "");
-  assert.match(defaultModelPicker, /model-default-provider-group/);
-  assert.match(defaultModelPicker, /model-default-option-model font-mono">[\s\S]*?\{modelId\}/);
-  assert.match(defaultModelPicker, /setDefaultModel\(provider, modelId\)/);
-  assert.match(providersSource, /settings-text-action model-default-trigger/);
-  assert.doesNotMatch(providersSource, /defaultModelDescription/);
-  // The accessible name follows the provider heading, which is the vendor
-  // account's own label when it has one (#785).
-  assert.match(
-    providersSource,
-    /aria-label=\{`\$\{providerDisplayName\(provider\)\} · \$\{modelId\}`\}/,
-  );
-  assert.match(providersSource, /placeholder=\{t\("settings\.defaultModelSearch"\)\}/);
-  assert.match(providersSource, /model-default-results/);
-  assert.match(stylesSource, /\.model-default-results\s*\{[\s\S]*?overflow-y: auto;/);
-  assert.match(stylesSource, /scrollbar-gutter: stable/);
-});
 
 test("model configuration lists AI services and vendor accounts together", () => {
   // One list (D625): nothing filters OAuth rows out, and no second section.
@@ -367,8 +338,14 @@ test("a service row opens its editor and keeps only a switch and one menu", () =
   // An account has no enable switch; a plugin's switch belongs to the plugin.
   assert.match(serviceRowSource, /kind !== "account" \? \(/);
   assert.match(serviceRowSource, /disabled=\{busy \|\| kind === "plugin"\}/);
-  // A plugin owns its row, so neither edit nor remove is offered for one.
-  assert.match(serviceListSource, /if \(kind !== "plugin"\) \{\s*items\.push\(\{\s*key: "edit"/);
+  // Plugin-owned rows are not editable, including OAuth account rows; those
+  // rows still expose sign-out through the overflow menu.
+  assert.match(serviceListSource, /const pluginOAuth = kind === "account" && !!provider\.ownerPluginId/);
+  assert.match(
+    serviceListSource,
+    /if \(kind !== "plugin" && !pluginOAuth\) \{\s*items\.push\(\{\s*key: "edit"/,
+  );
+  assert.match(serviceListSource, /t\(pluginOAuth\s*\?\s*"settings\.vendorSignOut"/);
   assert.match(serviceListSource, /if \(kind !== "plugin"\) \{\s*const isArmed/);
   // Removal is confirmed inside the menu rather than by a second row button.
   assert.match(serviceListSource, /useArmedDelete\(\)/);
@@ -410,7 +387,7 @@ test("settings nav icons map each destination to a semantic lucide glyph", () =>
   assert.match(settingsPageSource, /shortcuts: <IconKeyboard/);
   assert.match(settingsPageSource, /instructions: <IconFileText/);
   assert.match(settingsPageSource, /agent: <IconBot/);
-  assert.match(settingsPageSource, /import: <IconDownload/);
+  assert.doesNotMatch(settingsPageSource, /import: <IconDownload/);
   assert.match(settingsPageSource, /projects: <IconArchive/);
   assert.match(settingsPageSource, /about: <IconInfo/);
   assert.doesNotMatch(settingsPageSource, /general: <IconSettings/);
@@ -446,7 +423,9 @@ test("settings nav keeps a flat searchable index with titled visual groups", () 
     "shortcuts",
     "instructions",
     "agent",
-    "import",
+    "skills",
+    "mcp",
+    "subagents",
     "projects",
     "about",
   ].map((id) => settingsSearchSource.indexOf(`id: "${id}"`));
@@ -461,7 +440,7 @@ test("settings nav keeps a flat searchable index with titled visual groups", () 
   assert.doesNotMatch(generalEntry, /settings\.defaultsTitle/);
   assert.match(aiEntry, /settings\.defaultsTitle/);
   assert.match(aiEntry, /settings\.commandShell/);
-  assert.match(aiEntry, /settings\.promptEnhancementModelTitle/);
+  assert.doesNotMatch(aiEntry, /settings\.promptEnhancementModelTitle/);
   assert.match(settingsSearchSource, /keywordKeys/);
   assert.match(settingsSearchSource, /settings\.projectArchive/);
   assert.doesNotMatch(stylesSource, /\.token-usage-page/);
@@ -485,7 +464,6 @@ test("settings rail uses short parallel labels and descriptive page titles", () 
     "settings.nav.skills",
     "settings.nav.mcp",
     "settings.nav.subagents",
-    "settings.nav.import",
     "settings.nav.projects",
     "settings.nav.info",
   ];
@@ -502,12 +480,13 @@ test("settings rail uses short parallel labels and descriptive page titles", () 
   assert.match(settingsPageSource, /titleKey: entry\.titleKey/);
 });
 
-test("marketplace source settings live inside the Plugins marketplace surface", () => {
-  assert.match(pluginsPageSource, /<MarketplaceSourceSettings/);
-  assert.match(marketplaceSettingsSource, /api\.marketRefresh\(true\)/);
-  assert.match(marketplaceSettingsSource, /settings\.marketProvider/);
-  assert.match(marketplaceSettingsSource, /<SettingsMenuSelect/);
-  assert.doesNotMatch(marketplaceSettingsSource, /<Select/);
+test("Plugins marketplace keeps official refresh without source settings", () => {
+  assert.doesNotMatch(
+    pluginsPageSource,
+    /MarketplaceSourceSettings|pluginMarketSource|pluginMarketCustomUrl|marketProvider|marketCustomUrl|marketSource/,
+  );
+  assert.match(pluginsPageSource, /api\.marketRefresh\(true\)/);
+  assert.match(pluginsPageSource, /refreshMarket\(query, \{ refreshRemote: true \}\)/);
   assert.doesNotMatch(settingsPageSource, /ExtensionMarketSection/);
   assert.doesNotMatch(settingsPageSource, /tab === "extensions"/);
 });

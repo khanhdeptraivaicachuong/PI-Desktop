@@ -48,7 +48,11 @@ export async function prepareStorage(defaultData: string, overridden: boolean): 
     return current;
   }
   const job = preferences.pending;
-  // Never open a persistent session against a source being copied/cleaned.
+  // Chromium initializes the default session when the first window is created.
+  // That must not land in the profile this job is about to copy or clean.
+  const maintenanceSession = join(app.getPath("temp"), `pi-desktop-storage-${job.id}`);
+  mkdirSync(maintenanceSession, { recursive: true });
+  app.setPath("sessionData", maintenanceSession);
   await app.whenReady();
   const copy = catalogs[resolveLocale(job.language)].settings.storage;
   const window = new BrowserWindow({ width: 560, height: 330, resizable: false, closable: false,

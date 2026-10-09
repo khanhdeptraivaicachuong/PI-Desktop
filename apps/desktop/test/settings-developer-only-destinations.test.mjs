@@ -1,7 +1,9 @@
 /**
- * Experimental settings destinations are retained in development builds but
- * omitted from packaged builds. Navigation, search, and stale-page handling
- * must all honor the same build visibility.
+ * Developer-only settings destinations are retained in development builds
+ * but omitted from packaged builds. Cloud sync is not open to users yet and
+ * carries the same build gate: development builds keep it, packaged builds
+ * omit its rail row, page, and settings-search hits. Navigation, search, and
+ * stale-page handling must all honor the same visibility rules.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -43,7 +45,7 @@ const settingsPrimitives = readFileSync(
 );
 
 const identity = (key) => key;
-const experimentalIds = ["sync", "remoteHosts"];
+const developerOnlyIds = ["remoteHosts"];
 
 test("Live Voice is reachable in every build without developer mode", () => {
   for (const developerMode of [false, true]) {
@@ -72,57 +74,113 @@ test("Live Voice is reachable in every build without developer mode", () => {
   );
 });
 
-test("developer mode retains the experimental destinations in development", () => {
-  const off = visibleSettingsNav(false).map((entry) => entry.id);
-  const on = visibleSettingsNav(true).map((entry) => entry.id);
+test("Cloud sync is a development-build-only destination", () => {
+  // Cloud backup (encrypted portable configuration sync) is not open to users
+  // yet: development builds keep the destination, packaged builds omit it.
+  for (const developerMode of [false, true]) {
+    assert.ok(visibleSettingsNav(developerMode, true)
+      .some((entry) => entry.id === "sync"));
+    assert.equal(isSettingsDestinationHidden("sync", developerMode, true), false);
+    for (const query of [
+      "configSync.connectionTitle",
+      "configSync.endpoint",
+      "configSync.syncNow",
+    ]) {
+      assert.ok(searchSettings(query, identity, {
+        developerMode,
+        includeDevelopmentOnly: true,
+      }).some((hit) => hit.tab === "sync"));
+    }
 
-  for (const id of experimentalIds) {
-    assert.equal(off.includes(id), false);
-    assert.equal(on.includes(id), true);
-  }
-  assert.deepEqual(off, on.filter((id) => !experimentalIds.includes(id)));
-  assert.deepEqual(
-    SETTINGS_NAV.filter((entry) => entry.developerOnly === true).map((entry) => entry.id),
-    experimentalIds,
-  );
-  assert.ok(
-    SETTINGS_NAV.filter((entry) => entry.developerOnly === true)
-      .every((entry) => entry.experimentalBadgeKey),
-  );
-});
-
-test("packaged builds still hide cloud sync and remote hosts", () => {
-  const packaged = visibleSettingsNav(true, false).map((entry) => entry.id);
-  for (const id of experimentalIds) {
-    assert.equal(packaged.includes(id), false);
-    assert.equal(isSettingsDestinationHidden(id, true, false), true);
-  }
-  assert.equal(isSettingsDestinationHidden("general", true, false), false);
-});
-
-test("settings search mirrors developer and packaged visibility", () => {
-  assert.deepEqual(
-    searchSettings("configSync.connectionTitle", identity, { developerMode: false }),
-    [],
-  );
-  assert.ok(
-    searchSettings("configSync.connectionTitle", identity, { developerMode: true })
-      .some((hit) => hit.tab === "sync"),
-  );
-
-  for (const query of ["configSync.connectionTitle", "remotehosts"]) {
-    assert.ok(
-      searchSettings(query, identity, { developerMode: true })
-        .some((hit) => experimentalIds.includes(hit.tab)),
-    );
+    assert.equal(visibleSettingsNav(developerMode, false)
+      .some((entry) => entry.id === "sync"), false);
+    assert.equal(isSettingsDestinationHidden("sync", developerMode, false), true);
     assert.deepEqual(
-      searchSettings(query, identity, {
-        developerMode: true,
+      searchSettings("configSync.connectionTitle", identity, {
+        developerMode,
         includeDevelopmentOnly: false,
       }),
       [],
     );
   }
+  // The build gate is the only gate: no developer mode and no badge.
+  const sync = SETTINGS_NAV.find((entry) => entry.id === "sync");
+  assert.equal(sync?.developerOnly, undefined);
+  assert.equal(sync?.developmentOnly, true);
+  assert.equal(sync?.experimentalBadgeKey, undefined);
+});
+
+test("developer mode retains the developer-only destinations in development", () => {
+  const off = visibleSettingsNav(false).map((entry) => entry.id);
+  const on = visibleSettingsNav(true).map((entry) => entry.id);
+
+  for (const id of developerOnlyIds) {
+    assert.equal(off.includes(id), false);
+    assert.equal(on.includes(id), true);
+  }
+  assert.deepEqual(off, on.filter((id) => !developerOnlyIds.includes(id)));
+  assert.deepEqual(
+    SETTINGS_NAV.filter((entry) => entry.developerOnly === true).map((entry) => entry.id),
+    developerOnlyIds,
+  );
+  assert.ok(
+    SETTINGS_NAV.filter((entry) => entry.developerOnly === true)
+      .every((entry) => entry.experimentalBadgeKey),
+  );
+  // Development builds keep the not-yet-open Cloud sync destination.
+  assert.equal(off.includes("sync"), true);
+});
+
+test("packaged builds hide the developer-only destinations and Cloud sync", () => {
+  const packaged = visibleSettingsNav(true, false).map((entry) => entry.id);
+  for (const id of developerOnlyIds) {
+    assert.equal(packaged.includes(id), false);
+    assert.equal(isSettingsDestinationHidden(id, true, false), true);
+  }
+  assert.equal(packaged.includes("sync"), false);
+  assert.equal(isSettingsDestinationHidden("sync", true, false), true);
+  assert.equal(isSettingsDestinationHidden("sync", false, false), true);
+  assert.equal(isSettingsDestinationHidden("general", true, false), false);
+});
+
+test("settings search mirrors developer and packaged visibility", () => {
+  for (const options of [{ developerMode: false }, { developerMode: true }]) {
+    assert.ok(
+      searchSettings("configSync.connectionTitle", identity, options)
+        .some((hit) => hit.tab === "sync"),
+    );
+  }
+
+  for (const options of [
+    { developerMode: false, includeDevelopmentOnly: false },
+    { developerMode: true, includeDevelopmentOnly: false },
+  ]) {
+    assert.deepEqual(
+      searchSettings("configSync.connectionTitle", identity, options),
+      [],
+    );
+  }
+
+  for (const options of [
+    { developerMode: false },
+    { developerMode: false, includeDevelopmentOnly: false },
+  ]) {
+    assert.ok(
+      searchSettings("remotehosts", identity, options)
+        .every((hit) => hit.tab !== "remoteHosts"),
+    );
+  }
+  assert.ok(
+    searchSettings("remotehosts", identity, { developerMode: true })
+      .some((hit) => hit.tab === "remoteHosts"),
+  );
+  assert.deepEqual(
+    searchSettings("remotehosts", identity, {
+      developerMode: true,
+      includeDevelopmentOnly: false,
+    }),
+    [],
+  );
   assert.equal(searchSettings("settings", identity, { limit: 2 }).length, 2);
 });
 

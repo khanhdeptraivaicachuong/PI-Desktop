@@ -72,11 +72,21 @@ window.todoChecklistProbe = async () => {
   checks.push("collapsed-dock-reserves-no-blank-height");
   flushSync(() => header()!.click());
   await until(() => header()?.getAttribute("aria-expanded") === "true", "Click must expand dock");
-  assert(document.querySelectorAll(".todo-dock-row").length === 8, "Expanded list is capped at eight rows");
+  // The expanded dock lists every row and scrolls inside its own box (#1319).
+  assert(document.querySelectorAll(".todo-dock-row").length === 10, "Expanded list renders every row");
+  const list = document.querySelector<HTMLElement>(".todo-dock-list")!;
+  assert(getComputedStyle(list).overflowY === "auto", "The expanded list is the scroll container");
+  assert(list.scrollHeight > list.clientHeight, "A long checklist scrolls inside the dock instead of growing it");
+  assert(Math.round(list.clientHeight) <= 280, `The dock list keeps a bounded height (${list.clientHeight}px)`);
+  assert(getComputedStyle(list).overscrollBehaviorY === "contain",
+    "Reaching the list's end must not scroll the transcript");
+  assert(list.tabIndex === 0, "The expanded list is keyboard reachable");
   await until(() => Math.round(box(".todo-dock-clip").height) === Math.round(box(".todo-dock-list").height),
     "Expanded clip must match the listed rows once the disclosure transition settles");
-  assert(document.querySelector(".todo-dock-more")?.textContent?.includes("2"), "Overflow count must render");
-  checks.push("agent-prompt-tool-discovery-host-write-event-dock-expand-bounded-list");
+  assert(!document.querySelector(".todo-dock-more"), "No static overflow line remains");
+  assert(Math.round(box(".todo-dock").height) < 400,
+    `The dock keeps a bounded footprint (${dockGeometry()})`);
+  checks.push("agent-prompt-tool-discovery-host-write-event-dock-expand-full-scrolling-list");
   const normalized = await write(first, [
     { content: "😀".repeat(501), status: "in_progress", priority: "high" },
     { content: "Second active item", status: "in_progress", priority: "medium" },

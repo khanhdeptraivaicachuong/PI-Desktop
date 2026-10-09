@@ -2,6 +2,38 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const trEntries: ChangelogEntry[] = [
   {
+    "version": "0.18.0",
+    "date": "2026-10-09",
+    "highlights": [
+      "TypeSafe Jev sınıflandırıcısını Hizmet Ekle'den kurun ve kaydetmeden önce API anahtarını doğrulayın.",
+      "Yerelleştirilmiş açıklamalar ve anahtar kurulumundan sonra model keşfiyle eklenti kaynaklı API anahtarlı hizmetleri ekleyin.",
+      "İzin verilen eklenti işlemleri Composer taslağını dönüştürebilir ve geri alınabilir; istem iyileştirme artık isteğe bağlı bir eklentide sunulur.",
+      "Yanıt görünür kalsın diye araç ayrıntıları siz açana kadar kapalı kalır.",
+      "İsteğe bağlı bir eklentiyle oturum başlığı oluşturun; ilk istem yedek başlık olarak kalır ve elle yeniden adlandırmalar önceliklidir.",
+      "Göreli bağlantılar ve satır başvuruları dahil yerel Markdown dosya bağlantılarını sohbetten yerleşik Dosya Yöneticisi'nde açın.",
+      "Composer'ın model listesi artık yapılandırılmış bağlam penceresi sınırlarını gösterir.",
+      "Eklentiler ağ yönlendirmelerini inceleyebilir veya reddedebilir; mevcut fetch çağrıları varsayılan olarak yönlendirmeleri izlemeyi sürdürür.",
+    ],
+  },
+  {
+    "version": "0.17.0",
+    "date": "2026-10-07",
+    "highlights": [
+      "Yazarken görsel eklerini yerinde tutun, gönderdiğiniz görselleri de sohbet içinde önizleyin.",
+      "Konuşma referanslarını okunabilir etiketler olarak görün ve bağlantılı oturumu doğrudan açın.",
+      "Her istemin kullanabileceği MCP sunucularını ve araçlarını seçin.",
+      "Model seçicisinden son kullandığınız modellere hızla dönün.",
+      "Oturum açmış ChatGPT hesabınızla görsel üretin ve düzenleyin.",
+      "Eklenti sağlayıcıları artık OAuth ile kimlik doğrulayabilir.",
+      "İstediğiniz Skill'i bulmak için ad alanlı eğik çizgi komutlarını kullanın.",
+      "Genişletilmiş Todo listesinde bir kontrol listesinin tüm maddelerini inceleyin.",
+      "Modelleri, Skill'leri ve MCP sunucularını ilgili Ayarlar sayfalarından içe aktarın.",
+      "Sağlayıcı ve pazar yeri isteklerinde sistem proxy'sini kullanın.",
+      "Büyük araç çıktılarını sayfalayıp aktarım çizimini hızlandırarak sohbeti akıcı tutun.",
+      "Bir eklenti paneli hiç yüklenmezse hata durumu açıkça gösterilir.",
+    ],
+  },
+  {
     "version": "0.16.1",
     "date": "2026-10-04",
     "highlights": [
