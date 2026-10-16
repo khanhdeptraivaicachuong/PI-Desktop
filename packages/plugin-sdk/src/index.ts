@@ -630,9 +630,9 @@ export type PluginProviderContrib = {
  * `ui.window.appearance` grant.
  */
 export type PluginWindowAppearanceContrib = {
-  /** `#rrggbb` or `#rrggbbaa`, applied per resolved palette. */
+  /** `#rrggbb` or `#rrggbbaa`, applied per resolved palette; Windows 11 flattens alpha over the built-in palette. */
   backgroundColor?: { light?: string; dark?: string };
-  /** Windows main-window radius in DIP. Applies while a contributed theme is selected. */
+  /** Windows main-window radius request in DIP; Windows 11 uses the system radius for positive values. */
   cornerRadius?: number;
 };
 
@@ -1229,6 +1229,8 @@ export type PluginHostApi = {
     readPreview: (pathFromRoot: string) => Promise<PluginFsPreview>;
     /** Open an existing readable file with the operating system's default app. */
     openDefault: (pathFromRoot: string) => Promise<void>;
+    /** Open an existing readable HTML file in the bundled work-panel Browser. */
+    openInBrowser: (pathFromRoot: string) => Promise<void>;
     /** Reveal an existing readable file in the operating system's file manager. */
     reveal: (pathFromRoot: string) => Promise<void>;
     writeText: (pathFromRoot: string, content: string) => Promise<void>;
@@ -1334,6 +1336,8 @@ export type PluginHostApi = {
     openExternal: (url: string) => Promise<void>;
   };
   browser: {
+    /** Reveal the Browser view for the calling session and wait until it is ready. */
+    reveal: () => Promise<void>;
     navigate: (input: { url?: string; path?: string }) => Promise<unknown>;
     action: (input: { action: "back" | "forward" | "reload" | "stop" }) => Promise<void>;
     setBounds: (hole: { x: number; y: number; width: number; height: number }) => Promise<unknown>;
