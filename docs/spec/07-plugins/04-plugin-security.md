@@ -119,7 +119,12 @@ before it is ever sent to the UI:
   the selected one; leaving the theme restores the host background, because the
   appearance is derived from the live catalog rather than remembered. macOS
   keeps `vibrancy` and its native corner behavior; Linux retains native corner
-  behavior; Windows defaults to the global 12 DIP `--radius-md` token
+  behavior. Windows defaults to a 12 DIP corner request. On Windows 11 (build
+  22000+), radius 0 requests square corners and positive values use the same
+  system-rounded preference, while the OS chooses the actual radius; alpha
+  backgrounds are composited over the resolved built-in theme color to keep the
+  top-level window opaque. Earlier Windows builds retain the requested DIP
+  radius
 - The CSS is read from disk at load time and delivered whole over IPC; the
   renderer injects it into a single dedicated `<style>` element appended after
   the app's own stylesheets, so it can override tokens but never inject markup.
@@ -325,11 +330,14 @@ Plan is an additional host policy boundary for agent tools:
 - `net.fetch` is not granted by default
 - `openExternal` should confirm. The host parses the URL and opens only
   `http:`, `https:`, and `mailto:` (D330 / ADR 0168); other schemes fail with
-  `INVALID_ARGUMENT` and never reach `shell.openExternal`. `fs.openDefault` and
-  `fs.reveal` are separate: each accepts only an existing root-relative file
-  that already passes the plugin's `fs.read` policy. They are intended for
-  explicit file-view actions, not arbitrary URL or absolute-path opening;
-  `fs.reveal` only asks the OS file manager to select the file.
+  `INVALID_ARGUMENT` and never reach `shell.openExternal`. `fs.openDefault`,
+  `fs.openInBrowser`, and `fs.reveal` are separate: each accepts only an
+  existing file that already passes the plugin's `fs.read` policy. The Browser
+  action accepts HTML files only and opens a new work-panel resource tab; it
+  does not grant Browser CDP access. These APIs are intended for explicit
+  file-view actions, not arbitrary URL opening. The host-mediated file actions
+  also allow absolute paths under registered project roots; `fs.reveal` only
+  asks the OS file manager to select the file.
 - Plugins are forbidden from silently downloading and executing binaries (not done at all in MVP)
 
 ### 8.0 Egress allowlist
@@ -412,7 +420,8 @@ manifest did not name:
   disabled.
   Stopping the calling session cancels that session's in-flight MCP request and
   sends `notifications/cancelled` to the server. A shared server connection and
-  calls owned by other sessions remain active.
+  calls owned by other sessions remain active. A request that times out is
+  cancelled the same way; `initialize` is never cancelled.
 
 ## 8.2 Desktop control and device access
 
