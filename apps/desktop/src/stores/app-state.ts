@@ -40,7 +40,7 @@ import type {
   SessionSort,
 } from "../lib/sidebar-preferences";
 import type { PermissionQueues } from "../lib/pending-permissions";
-import type { AskQueues } from "../lib/pending-asks";
+import type { AskDraft, AskDrafts, AskQueues } from "../lib/pending-asks";
 import type {
   QueuedPromptDirection,
   QueuedPrompts,
@@ -176,6 +176,8 @@ export type AppState = {
   pendingPermissions: PermissionQueues;
   /** Inline asktool requests, queued per session without an expiry. */
   pendingAsks: AskQueues;
+  /** In-progress AskTool answers keyed by requestId, so a remount keeps them. */
+  askDrafts: AskDrafts;
   /** Renderer-owned, in-memory prompt queue, isolated by session. */
   queuedPrompts: QueuedPrompts;
   /** Planning state is durable per session, including sessions outside view. */
@@ -377,6 +379,10 @@ export type AppState = {
     sessionId: string,
     resolution: AskToolResolution,
   ) => Promise<void>;
+  /** Persist one question card's in-progress answers by requestId. */
+  setAskDraft: (requestId: string, draft: AskDraft) => void;
+  /** Forget a request's draft once it is resolved or dismissed. */
+  dropAskDraft: (requestId: string) => void;
   resolvePlan: (resolution: PlanResolveRequest) => Promise<PlanResolutionResult>;
   showToast: (message: string, options?: ToastOptions) => void;
   dismissToast: (id: number) => void;
@@ -387,7 +393,13 @@ export type AppState = {
   activeWorkPanelTabId: string | null;
   /** Runtime-only work panel state owned by each conversation. */
   workPanelContexts: Record<string, WorkPanelContext>;
+  /** The user's preferred panel width; persisted, never below the regular minimum. */
   workPanelWidth: number;
+  /**
+   * Runtime-only width a manual sidebar reopen lends to the sidebar. It ends
+   * when the sidebar collapses or the user resizes the panel.
+   */
+  workPanelYieldedWidth: number | null;
   /** Chat-initiated "preview this file" request consumed by the files viewer. */
   workPanelFileRequest: {
     path: string;
@@ -419,6 +431,7 @@ export type AppState = {
   /** Hide the visible panel while retaining its session-owned context. */
   resetWorkPanelContext: () => void;
   setWorkPanelWidth: (width: number) => void;
+  setWorkPanelYieldedWidth: (width: number | null) => void;
   openFileInWorkPanel: (
     path: string,
     mimeType?: string,
@@ -426,6 +439,7 @@ export type AppState = {
   ) => void;
   openUrlInWorkPanel: (url: string) => void;
   updateBrowserWorkPanelTab: (state: BrowserState) => void;
+  restoreBrowserWorkPanelTabs: (sessionId: string, pages: BrowserState[]) => void;
 };
 
 export type AppStateData = {

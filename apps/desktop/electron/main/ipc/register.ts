@@ -37,6 +37,7 @@ import { registerSpeechIpc } from "./speech-ipc";
 import { registerVoiceIpc } from "./voice-ipc";
 import { registerLiveVoiceIpc } from "./live-voice-ipc";
 import type { LiveCallService } from "../live-voice/call-service";
+import type { ComposerSuggestionAnswer } from "../services/composer-suggestion";
 import type { LiveVoiceWidget } from "../live-voice/widget-window";
 import type { IpcRegistrar } from "./types";
 import type { createTraySessions } from "../tray-sessions";
@@ -60,9 +61,18 @@ export type RegisterIpcDependencies = {
   getBackendRouter?: () => BackendRouter | null;
   getNotificationViewingSessionId: () => string | null;
   setNotificationViewingSessionId: (sessionId: string | null) => void;
+  /** The session on screen, as the shell reported it (plugin `session:activated`). */
+  setActivePluginSession: (
+    next: { sessionId: string; projectPath: string | null } | null,
+  ) => void;
+  /** The shell's answer to a composer suggestion it was offered (ADR 0333). */
+  settleComposerSuggestion: (answer: ComposerSuggestionAnswer) => boolean;
   activeUserSubagentDocuments: (...args: any[]) => Promise<any>;
   disabledBuiltinSubagents: () => Promise<string[]>;
   disabledBuiltinSkills: () => Promise<string[]>;
+  /** Host activation plus the inline-visualization switch, for runtime consumers. */
+  runtimeDisabledBuiltinSkills: () => Promise<string[]>;
+  completionNoticeTurns: Set<string>;
   liveCallService?: LiveCallService;
   liveVoiceWidget?: LiveVoiceWidget;
   restartForStorage: () => void;
@@ -94,12 +104,15 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getBackendRouter,
     getNotificationViewingSessionId,
     setNotificationViewingSessionId,
+    setActivePluginSession,
+    settleComposerSuggestion,
     getPluginLauncherWindow,
     togglePluginLauncher,
     safeOpenExternal,
     updater,
     dataDir,
     activeTurns,
+    completionNoticeTurns,
     isTurnDispatchable,
     sessionProjects,
     persistenceOutbox,
@@ -134,6 +147,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     activeUserSubagentDocuments,
     disabledBuiltinSubagents,
     disabledBuiltinSkills,
+    runtimeDisabledBuiltinSkills,
     pluginActiveInProject,
     getWorkPanelReservationWidth,
     setWorkPanelReservationWidth,
@@ -141,6 +155,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getWorkPanelChatWidthSetter,
     applyCloseBehavior,
     getCloseBehavior,
+    isMacosWindowTranslucent,
     markMenuRendererReady,
     markLifecycleDialogRendererReady,
     respondLifecycleDialog,
@@ -333,7 +348,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     agentExtensions,
     optionalWorkspaceRoot,
     activeUserSkills,
-    disabledBuiltinSkills,
+    disabledBuiltinSkills: runtimeDisabledBuiltinSkills,
     pluginActiveInProject,
     loadComposerTemplatesCached,
   });
@@ -347,6 +362,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     getWorkPanelChatWidthSetter,
     applyCloseBehavior,
     getCloseBehavior,
+    isMacosWindowTranslucent,
     markMenuRendererReady,
     markLifecycleDialogRendererReady,
     respondLifecycleDialog,
@@ -418,6 +434,7 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     persistenceOutbox,
     dataDir,
     activeTurns,
+    completionNoticeTurns,
     recordTurnStart,
     isTurnDispatchable,
     activeTurnUsages,
@@ -487,7 +504,6 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     currentWorkspacePath,
   });
 
-
   registerPluginUiIpc({
     registrar,
     plugins,
@@ -498,8 +514,9 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     currentWorkspacePath,
     getUpdaterLocale,
     getPluginPanelTheme,
+    setActivePluginSession,
+    settleComposerSuggestion,
   });
-
   registerSpeechIpc({ registrar, speech });
 
   if (voiceService) {

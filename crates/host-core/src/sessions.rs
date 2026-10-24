@@ -342,28 +342,39 @@ pub struct SearchHit {
 /// The renderer creates a session with its localized `chat.untitledTask` label
 /// and also recognizes `nav.newChat`, so host-core has to recognize the same
 /// values: it owns title eligibility and cannot read the renderer catalog when
-/// it decides whether a title may still be replaced. German, Spanish, and
-/// French fall back to the English label. Keep this in sync with the migration
-/// list in `db/session_title_source_migration.rs` and `LEGACY_DEFAULT_TITLES`
-/// in the renderer.
-const PLACEHOLDER_TITLES: [&str; 13] = [
+/// it decides whether a title may still be replaced. Every entry is stored
+/// lowercased and compared through `to_lowercase`, because both localized
+/// keys the renderer writes — `chat.untitledTask` and `nav.newChat` — have
+/// their own label per locale, and a non-ASCII uppercase letter (a future
+/// "Ñö..." entry) would slip past ASCII-case-insensitive matching (#1755).
+/// Keep this in sync with the migration list in
+/// `db/session_title_source_migration.rs` and `LEGACY_DEFAULT_TITLES` in the
+/// renderer.
+const PLACEHOLDER_TITLES: [&str; 19] = [
     "",
-    "New task",
-    "New chat",
+    "new task",
+    "new chat",
     "新建任务",
     "新对话",
     "新建任務",
     "新對話",
     "새 작업",
     "새 채팅",
-    "Tarefa sem título",
-    "Nova conversa",
-    "Yeni görev",
-    "Yeni sohbet",
+    "tarefa sem título",
+    "nova conversa",
+    "yeni görev",
+    "yeni sohbet",
+    "neue aufgabe",
+    "nouvelle tâche",
+    "nueva tarea",
+    "neuer chat",
+    "nuevo chat",
+    "nouvelle discussion",
 ];
 
 fn is_default_title(title: &str) -> bool {
-    PLACEHOLDER_TITLES.contains(&title.trim())
+    let t = title.trim().to_lowercase();
+    PLACEHOLDER_TITLES.iter().any(|p| *p == t)
 }
 
 // ---- UiMessage ⇄ transcript record mapping -----------------------------------
@@ -1523,6 +1534,17 @@ pub fn session_summary(db: &Database, id: &str) -> Result<Option<SessionSummary>
     Ok(summary)
 }
 
+/// Whether a session row still exists. Used to refuse work that would otherwise
+/// outlive its owning session and become unreachable — a background task
+/// started after its session was deleted belongs to nobody.
+pub fn session_exists(db: &Database, id: &str) -> Result<bool> {
+    Ok(db.conn().query_row(
+        "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+        params![id],
+        |row| row.get(0),
+    )?)
+}
+
 /// Load a session detail with an optional renderer-facing message window.
 /// The uncapped default is intentionally retained for the sidecar and for
 /// mutation paths that need the canonical transcript. Renderer callers should
@@ -1769,6 +1791,13 @@ pub fn fork_session_through(
         &mut records,
         &mut compactions,
     )?;
+    let visualization_files = fork_files::preserve_visualizations(
+        db.data_dir(),
+        source_id,
+        &id,
+        &mut records,
+        &mut compactions,
+    )?;
     let texts = records.iter().map(record_index_text).collect::<Vec<_>>();
     let now = now_ms();
     let created_at = ms_to_ts(now);
@@ -1813,6 +1842,7 @@ pub fn fork_session_through(
         return Err(error);
     }
     files.commit();
+    visualization_files.commit();
 
     let summary = SessionSummary {
         id,
@@ -4268,6 +4298,19 @@ pub fn get_token_usage_history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_title_matches_the_german_french_and_spanish_placeholders() {
+        // The renderer lowercases `chat.untitledTask` before persisting (#1755);
+        // the nav.newChat labels resolve through the same to_lowercase path.
+        assert!(is_default_title("neue aufgabe"));
+        assert!(is_default_title("Nouvelle tâche"));
+        assert!(is_default_title("nueva tarea"));
+        assert!(is_default_title("Neuer Chat"));
+        assert!(is_default_title("nuevo chat"));
+        assert!(is_default_title("Nouvelle discussion"));
+        assert!(!is_default_title("real session name"));
+    }
     use crate::workspace::simple_canonicalize;
 
     fn test_db() -> Database {
@@ -4905,6 +4948,12 @@ mod tests {
             "Tarefa sem título",
             "Yeni görev",
             "New chat",
+            "new task",
+            "new chat",
+            "tarefa sem título",
+            "nova conversa",
+            "yeni görev",
+            "yeni sohbet",
         ] {
             let session =
                 create_session(&db, Some(placeholder.into()), None, None, None, None).unwrap();
@@ -6280,6 +6329,47 @@ mod tests {
             1
         );
         assert_eq!(std::fs::read_to_string(file).unwrap(), "keep source");
+    }
+
+    #[test]
+    fn fork_copies_referenced_visualizations_so_cards_survive_source_deletion() {
+        let db = test_db();
+        let source = create_session(&db, Some("Charts".into()), None, None, None, None).unwrap();
+        let dir = crate::visualizations::session_dir(db.data_dir(), &source.id).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let chart = dir.join("chart.html");
+        std::fs::write(&chart, "<p>chart</p>").unwrap();
+        std::fs::write(dir.join("unused.html"), "<p>unused</p>").unwrap();
+        let text = format!("::visualize{}", json!({"path": chart}));
+        append_message(
+            &db,
+            &source.id,
+            &UiMessage {
+                role: "assistant".into(),
+                ..user_msg("viz-1", &text, "2025-05-01T00:00:00Z")
+            },
+            None,
+        )
+        .unwrap();
+        let ForkSessionResult::Created(child) =
+            fork_session_through(&db, &source.id, None, None).unwrap()
+        else {
+            panic!("expected child")
+        };
+        let child_dir =
+            crate::visualizations::session_dir(db.data_dir(), &child.summary.id).unwrap();
+        let child_chart = child_dir.join("chart.html");
+        assert_eq!(
+            child.messages[0].content,
+            format!("::visualize{}", json!({"path": child_chart}))
+        );
+        assert!(!child_dir.join("unused.html").exists());
+        delete_session(&db, &source.id).unwrap();
+        crate::visualizations::remove_session_dir(db.data_dir(), &source.id);
+        assert_eq!(
+            std::fs::read_to_string(&child_chart).unwrap(),
+            "<p>chart</p>"
+        );
     }
 
     #[test]

@@ -21,7 +21,11 @@ export function ProcessActivityGroup({
   const { t } = useTranslation();
   const detailsId = useId();
   const grouped = items.length > 1;
-  const open = !grouped || disclosure.open;
+  // A group below a collapsed whole-turn process is not expanded even when the
+  // user left it open: `disclosure.open` already folds in that gate, and the
+  // choice itself survives so reopening the process restores it.
+  const parentVisible = disclosure.parentVisible;
+  const open = (!grouped || disclosure.open) && parentVisible;
   const summary = useMemo(() => cachedActivitySummary(items), [items]);
   if (items.length === 0) return null;
   return (
@@ -39,6 +43,7 @@ export function ProcessActivityGroup({
           <span className={`tool-activity-label${active ? " running" : ""}`}>
             {t(summary.label, { count: summary.count })}
           </span>
+          {active ? <span className="activity-marker" aria-hidden /> : null}
           {summary.thinking > 0 && summary.tools > 0 ? (
             <span className="tool-activity-count">{t("chat.activityIncludesThinking")}</span>
           ) : null}

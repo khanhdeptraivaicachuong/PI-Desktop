@@ -55,26 +55,13 @@ import {
 import { TranscriptSearchContext } from "../../../lib/transcript-search-context";
 import { useAppStore } from "../../../stores/app-store";
 import { resolveShowThinking } from "../../../lib/thinking-visibility";
+import { resolveTranscriptDisplayMode } from "../../../lib/transcript-display-mode";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 type ActivityItem = AssistantActivityItem;
 
-export function activityItemDetail(item: ActivityItem): string {
-  if (item.kind === "hostedSearch") return item.round.query ?? "";
-  if (item.kind === "thinking") {
-    // Latest thought line, so a collapsed header reads like a live ticker.
-    const lines = thinkingText(item.message)
-      .split("\n")
-      .map((line) => line.replace(/^#+\s*|\*\*/g, "").trim())
-      .filter(Boolean);
-    return lines[lines.length - 1] || "";
-  }
-  if (lifecycleKindOf(item.message)) {
-    return delegationRosterSummary(delegationRoster(item.message));
-  }
-  return getToolSummary(item.message.toolName, item.message.toolArgs);
-}
+const AUTOMATIC_OPEN_MAX_ITEMS = 4;
 
 
 function waitingSubagentActionLabel(
@@ -218,6 +205,7 @@ export const ActivityGroup = memo(function ActivityGroup({
 }: ActivityGroupProps) {
   const showThinking = useAppStore((state) => resolveShowThinking(state.settings));
   const hideThinking = !showThinking;
+  const displayMode = useAppStore((state) => resolveTranscriptDisplayMode(state.settings));
   const { t } = useTranslation();
   const detailsId = useId();
   const rawDelegateItems = useMemo(() => items.filter(isDelegationActivityItem), [items]);
@@ -254,12 +242,19 @@ export const ActivityGroup = memo(function ActivityGroup({
     ? searchTarget.requestId : undefined, [items, searchTarget]);
   const visibleItems = useMemo(() => cachedVisibleActivityItems(items, hideThinking, isActive), [items, hideThinking, isActive]);
   const first = items[0];
+  // Groups frame their rows; each tool or search payload keeps its own
+  // disclosure, so leaving a small group open does not reveal tool details.
+  const automaticallyOpen = hasSubagentTopology || live || visibleItems.length <= AUTOMATIC_OPEN_MAX_ITEMS;
   const disclosure = useAutomaticDisclosure(
-    hasSubagentTopology ? live : visibleItems.length <= 1 || live,
+    automaticallyOpen,
     revealRequest,
     disclosureKey("activity", first?.message.id ?? "", first?.kind ?? "", first?.kind === "hostedSearch" ? first.round.id : ""),
   );
   const { open, toggle: toggleDisclosure, collapse: collapseDisclosure, claim: claimDisclosure, titleRef } = disclosure;
+  // A subagent card is its own disclosure, so it reads the same parent gate the
+  // group does: below a collapsed whole-turn process it stays shut, and
+  // reopening the process restores the card's own choice.
+  const cardShut = hasSubagentTopology && !open;
   const [now, setNow] = useState(Date.now);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const wasActiveRef = useRef(live);
@@ -308,14 +303,10 @@ export const ActivityGroup = memo(function ActivityGroup({
           : // History reloads keep no end timestamp for pure-thinking groups.
             t("chat.thinking", { defaultValue: "Thinking" })
         : t("chat.processedFor", { time: elapsed });
-  const runtimeStatus = runtimeActivity
-    ? runActivityLabel(runtimeActivity, t as Translate)
-    : "";
-  const currentDetail = useMemo(() =>
-    live && !runtimeStatus && lastItem && !(hideThinking && lastItem.kind === "thinking")
-      ? activityItemDetail(lastItem) : "",
-  [live, runtimeStatus, lastItem, hideThinking]);
-  const tail = live && !open ? currentDetail : "";
+  // The header states outcome, counts and elapsed time; it never echoes the item
+  // it is working on. A shell command or a search query can be arbitrarily long,
+  // and repeating it here pushed the counts off the row while adding nothing a
+  // reader cannot get by opening the item.
 
   useEffect(() => {
     if (wasActiveRef.current && !live) setFinishedAt(Date.now());
@@ -335,6 +326,10 @@ export const ActivityGroup = memo(function ActivityGroup({
     delegationTimings={delegationTimings}
     onUserInteraction={claimDisclosure}
   />;
+
+  // Flat mode has one outer process disclosure and no nested group at all.
+  // The rows themselves still keep their own tool/thinking disclosures.
+  if (displayMode === "flat") return <>{renderedItems}</>;
 
   if (!hasSubagentTopology) {
     return (
@@ -370,6 +365,7 @@ export const ActivityGroup = memo(function ActivityGroup({
         <span className={`tool-activity-label ${live ? "running" : ""}`}>
           {label}
         </span>
+        {live ? <span className="activity-marker" aria-hidden /> : null}
         {hasSubagentTopology ? (
           <span className="subagent-activity-metrics">
             {t("chat.subagentCount", { count: subagentSummary.total })}
@@ -392,17 +388,13 @@ export const ActivityGroup = memo(function ActivityGroup({
       </button>
       <SubagentStopButton running={topologyLive} />
       </div>
-      {tail ? (
-        <div className="tool-activity-preview" aria-hidden>
-          {tail}
-        </div>
-      ) : null}
       <div
         ref={disclosure.bodyRef}
         {...disclosure.bodyEvents}
         className="tool-activity-collapse"
-        aria-hidden={!open}
-        inert={!open}
+        aria-hidden={!open || cardShut}
+        inert={!open || cardShut}
+        hidden={cardShut}
       >
         <div className="tool-activity-collapse-inner">
           <div className="tool-activity-body" id={detailsId}>
