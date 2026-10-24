@@ -62,6 +62,11 @@ async function getNativePiService() {
   return nativePiServiceFactory();
 }
 
+function nativeProjectPaths(params: { projectPaths?: unknown } | undefined): string[] {
+  const value = params?.projectPaths;
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 const runtimes: RuntimeMap = new Map();
 const hostProxy = new ParentHostProxy();
 const testRuntimeIds = new WeakMap<DesktopAgentRuntime, string>();
@@ -121,6 +126,8 @@ type RuntimeParams = {
   /** Opted-in override keys, separate from definition-only pinned bindings. */
   subagentModelKeys?: string[];
   scratchDir?: string;
+  /** Per-session visualization directory; omitted for remote sessions. */
+  visualizationsDir?: string;
   /** Session-bound workspace root supplied by Electron main. */
   projectPath?: string;
   remoteWorkspace?: { hostKey: string; path: string };
@@ -321,6 +328,10 @@ async function runtimeFor(
       typeof params.scratchDir === "string" && params.scratchDir
         ? params.scratchDir
         : undefined,
+    visualizationsDir:
+      typeof params.visualizationsDir === "string" && params.visualizationsDir
+        ? params.visualizationsDir
+        : undefined,
     onEvent: (envelope: AgentEventEnvelope) => notify("agent.event", envelope),
     onDiagnostic: (diagnostic) => notify("agent.diagnostic", diagnostic),
   });
@@ -396,11 +407,13 @@ async function handle(method: string, params: any): Promise<unknown> {
       return { ok: true, runtimes: runtimes.size };
     case "native.session.list": {
       const service = await getNativePiService();
-      return { sessions: await service.list() };
+      return { sessions: await service.list({ projectPaths: nativeProjectPaths(params) }) };
     }
     case "native.session.search": {
       const service = await getNativePiService();
-      return service.search(String(params.query ?? ""));
+      return service.search(String(params?.query ?? ""), {
+        projectPaths: nativeProjectPaths(params),
+      });
     }
     case "native.session.get": {
       const service = await getNativePiService();

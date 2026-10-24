@@ -68,8 +68,10 @@ import {
 } from "./subagent-context.js";
 import {
   dedupeToolCallMessages,
+  createToolCallIdentity,
   reportDuplicateToolCallDrop,
 } from "./tool-call-dedupe.js";
+import { removeTrailingAssistantMessages } from "./system-transcript.js";
 import {
   classifyProviderError,
   delayWithAbort,
@@ -237,6 +239,7 @@ export { addUsage };
 /** One delegate execution. A resumed run is still a new instance; it is
  * seeded with the prior chain's messages rather than kept warm in memory. */
 export class SubagentRun {
+  private readonly uniqueToolCalls: ReturnType<typeof createToolCallIdentity>;
   private readonly agent: Agent;
   private readonly opts: SubagentRunOptions;
   private currentAssistant?: UiMessage;
@@ -273,6 +276,7 @@ export class SubagentRun {
 
   constructor(opts: SubagentRunOptions) {
     this.opts = opts;
+    this.uniqueToolCalls = createToolCallIdentity(opts.initialMessages ?? []);
     this.provider = opts.provider;
     this.thinkingLevel = opts.thinkingLevel;
     this.attemptedModels.add(`${opts.provider.id}/${opts.provider.modelId}`);
@@ -446,6 +450,7 @@ export class SubagentRun {
       sessionId: this.opts.sessionId,
       maxTokens: this.opts.definition.maxTokens,
       onUsage: usage => this.recordUsage(usage),
+      uniqueToolCalls: this.uniqueToolCalls,
     }, this.retryState);
   }
 
@@ -617,13 +622,11 @@ export class SubagentRun {
     const retryError = this.pendingProviderRetry;
     if (!retryError) return;
     this.pendingProviderRetry = undefined;
-    const messages = [...this.agent.state.messages];
-    if (messages.at(-1)?.role !== "assistant") {
-      throw new Error("Cannot retry a subagent provider stream without its failed assistant message");
-    }
     // A failed provider stream can leave more than one assistant row after a
-    // tool round. Remove the entire failed suffix before continuing.
-    while (messages.at(-1)?.role === "assistant") messages.pop();
+    // tool round. Compaction may already have replaced the failed assistant
+    // with a summary or retained user message, so an assistant tail is
+    // optional. Remove any failed suffix before continuing.
+    const messages = removeTrailingAssistantMessages(this.agent.state.messages);
     this.agent.state.messages = messages;
     this.providerRetryInProgress = true;
     try {

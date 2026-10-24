@@ -42,6 +42,23 @@ test("closing a tab restores focus to its neighbor or the new-tab action", () =>
   assert.match(panelSource, /else newTabButtonRef\.current\?\.focus\(\)/);
 });
 
+test("activating an overflowing tab keeps its close action in view", () => {
+  const scrollEffectStart = panelSource.indexOf("useLayoutEffect(() => {\n    if (!activeTabId) return;");
+  const scrollEffectEnd = panelSource.indexOf("  }, [activeTabId, tabs.length]);", scrollEffectStart);
+  assert.ok(scrollEffectStart >= 0);
+  assert.ok(scrollEffectEnd > scrollEffectStart);
+  const scrollEffect = panelSource.slice(scrollEffectStart, scrollEffectEnd);
+  assert.match(scrollEffect, /tabWrapperRefs\.current\[activeTabId\]\?\.scrollIntoView/);
+  assert.match(scrollEffect, /tabButtonRefs\.current\[activeTabId\]\?\.scrollIntoView/);
+  assert.match(scrollEffect, /tabCloseButtonRefs\.current\[activeTabId\]\?\.scrollIntoView/);
+  assert.ok(
+    scrollEffect.indexOf("tabCloseButtonRefs") > scrollEffect.indexOf("tabButtonRefs"),
+    "the close button should be the final scroll target",
+  );
+  assert.match(panelSource, /tabWrapperRefs\.current\[tab\.id\] = node/);
+  assert.match(panelSource, /tabCloseButtonRefs\.current\[tab\.id\] = node/);
+});
+
 test("work panel replaces the context panel overlay", async () => {
   await assert.rejects(
     access(new URL("../src/components/ContextPanel.tsx", import.meta.url)),
@@ -699,4 +716,23 @@ test("preview mode keeps shell actions and restores routes before navigation", (
   assert.match(globalStyles, /\.app-shell\.work-panel-maximized \.work-panel-header \{[^}]*margin-left:\s*calc\(var\(--preview-chrome-inset\) \+ var\(--preview-chrome-action-lane\)\);[^}]*padding-left:\s*0;/);
   assert.match(globalStyles, /\.work-panel-header \{[^}]*app-region:\s*drag;/);
   assert.match(globalStyles, /\.app-shell\.work-panel-maximized \.work-panel-main \{[^}]*var\(--ds-bg-dock-raised\) 0 var\(--ds-toolbar-height\)/);
+});
+
+test("the active tab scrolls its wrapper so the sibling close button stays visible", () => {
+  // Issue #1762: the close button is a sibling of the tab button inside the
+  // tab wrapper. Scrolling the button with `inline: "nearest"` moves nothing
+  // once the button is visible, leaving the close button clipped outside the
+  // strip's overflow edge.
+  // Upstream #1775 introduced the wrapper refs; this branch keeps them and
+  // adds the shared reveal helper plus the resize/hover paths.
+  assert.match(panelSource, /const tabWrapperRefs = useRef<Record<string, HTMLDivElement \| null>>\(\{\}\)/);
+  assert.match(
+    panelSource,
+    /tabWrapperRefs\.current\[tabId\]\?\.scrollIntoView\(/,
+  );
+  assert.match(panelSource, /tabWrapperRefs\.current\[tab\.id\] = node/);
+  // The strip reserves the close button's width at the inline end as a
+  // structural guarantee against sub-pixel clipping.
+  const strip = globalStyles.match(/\.work-panel-tab-strip \{[^}]*\}/)?.[0] ?? "";
+  assert.match(strip, /scroll-padding-inline:\s*2px 24px;/);
 });

@@ -2,7 +2,7 @@ export const PROTOCOL_VERSION = 11 as const;
 export const SCHEMA_VERSION = 16 as const;
 export const APP_ID = "net.aiuo.pi-desktop";
 export const APP_NAME = "PI-Desktop";
-export const APP_VERSION = "0.21.0-beta.1";
+export const APP_VERSION = "0.21.0-beta.8";
 
 export const APP_MENU_COMMANDS = [
   "newTask",
@@ -337,6 +337,18 @@ export const IPC = {
     pluginViewClose: "pi-desktop/plugin/view/close",
     pluginViewSetBounds: "pi-desktop/plugin/view/setBounds",
     pluginViewSetVisible: "pi-desktop/plugin/view/setVisible",
+    /**
+     * The session the user is looking at, pushed by the renderer. The shell owns
+     * the selection; the main process owns turn identity, so the plugin
+     * `session:activated` snapshot is assembled from both (spec 07-plugins/03).
+     */
+    pluginSessionActive: "pi-desktop/plugin/session/active",
+    /**
+     * The shell's answer to one composer suggestion (`pi.composer.suggest`):
+     * whether it went on screen and, if not, why. The main process is waiting
+     * on this invoke, so a suggestion's caller learns what happened to it.
+     */
+    pluginComposerSuggestionResult: "pi-desktop/plugin/composer/suggestionResult",
     mcpList: "pi-desktop/mcp/list",
     mcpUpsert: "pi-desktop/mcp/upsert",
     mcpRemove: "pi-desktop/mcp/remove",
@@ -383,6 +395,9 @@ export const IPC = {
     marketCheckUpdates: "pi-desktop/market/checkUpdates",
     marketApplyUpdates: "pi-desktop/market/applyUpdates",
     marketCancelInstall: "pi-desktop/market/cancelInstall",
+    marketReviewSummaries: "pi-desktop/market/reviewSummaries",
+    marketReviewTickers: "pi-desktop/market/reviewTickers",
+    marketReviews: "pi-desktop/market/reviews",
     commandPaletteSearch: "pi-desktop/commandPalette/search",
     commandPaletteExecute: "pi-desktop/commandPalette/execute",
     logOpenFolder: "pi-desktop/log/openFolder",
@@ -401,6 +416,7 @@ export const IPC = {
     browserSetVisible: "pi-desktop/browser/setVisible",
     browserOpenExternal: "pi-desktop/browser/openExternal",
     browserGetState: "pi-desktop/browser/getState",
+    browserGetPages: "pi-desktop/browser/getPages",
     fsList: "pi-desktop/fs/list",
     fsRead: "pi-desktop/fs/read",
     fsReadImageDataUrl: "pi-desktop/fs/readImageDataUrl",
@@ -408,6 +424,7 @@ export const IPC = {
     fsReveal: "pi-desktop/fs/reveal",
     fsOpen: "pi-desktop/fs/open",
     fsIndex: "pi-desktop/fs/index",
+    fsSearch: "pi-desktop/fs/search",
     fsResolveRef: "pi-desktop/fs/resolveRef",
     windowSetWorkPanelReservation:
       "pi-desktop/window/setWorkPanelReservation",
@@ -450,6 +467,19 @@ export const IPC = {
     browserState: "pi-desktop/browser/event/state",
     browserPreview: "pi-desktop/browser/event/preview",
     browserOpenFile: "pi-desktop/browser/event/openFile",
+    /**
+     * A plugin asked the shell to show one of its own work-panel views
+     * (`pi.ui.revealView`). The shell owns tabs, so it — not the plugin — decides
+     * which session's panel takes the view.
+     */
+    pluginViewReveal: "pi-desktop/plugin/view/event/reveal",
+    /**
+     * One composer suggestion (`pi.composer.suggest`): an offer to show a
+     * plugin's line in the placeholder layer, or the shell's order to drop what
+     * it shows. The shell owns the composer, so it decides and answers over
+     * `pluginComposerSuggestionResult`.
+     */
+    pluginComposerSuggestion: "pi-desktop/plugin/composer/event/suggestion",
     windowMaximized: "pi-desktop/window/event/maximized",
     windowFullScreen: "pi-desktop/window/event/fullscreen",
     windowWorkPanelResize: "pi-desktop/window/event/workPanelResize",
